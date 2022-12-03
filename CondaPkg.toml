@@ -1,0 +1,8 @@
+[deps]
+pybamm = ""
+networkx = ""
+python = "=3.9"
+
+[pip.deps]
+qtconsole = ""
+dfo-ls = ""
