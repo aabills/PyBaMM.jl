@@ -47,6 +47,7 @@ Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 [compat]
 GeneralizedGenerated = "0.3"
 OrdinaryDiffEq = "6"
+Reexport = "1"
 julia = "1.8"
 
 [extras]
