@@ -523,13 +523,13 @@ class JuliaConverter(object):
                     cache_shape_st = cache_shape
                 if self._parallel == "Distributed-Shared":
                     self._cache_and_const_string += (
-                        "{}_init = dualcache(SharedArray(zeros{}),12)\n".format(
+                        "{}_init = PreallocationTools.dualcache(SharedArray(zeros{}),12)\n".format(
                             cache_name, cache_shape_st
                         )
                     )
                 else:
                     self._cache_and_const_string += (
-                        "{}_init = dualcache(zeros{},12)\n".format(
+                        "{}_init = PreallocationTools.dualcache(zeros{},12)\n".format(
                             cache_name, cache_shape_st
                         )
                     )
