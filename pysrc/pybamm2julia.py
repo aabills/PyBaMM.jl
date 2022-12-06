@@ -99,6 +99,12 @@ class PybammJuliaFunction(pybamm.Symbol):
             return np.nan * np.zeros(self.shape)
         else:
             return self.expr.evaluate_for_shape()
+    
+    def evaluate(self, *kwargs):
+        if self.expr is None:
+            return np.zeros(self.shape)
+        else:
+            return self.expr.evaluate()
 
     @property
     def shape(self):

@@ -146,6 +146,7 @@ class CoarsePack(pack.Pack):
                 lsv = []
             else:
                 lsv = list(self._distribution_params.values())
+            lsv = lsv+[pybamm.Time(),]
             
 
             if self._input_parameter_order is not None:
@@ -358,6 +359,7 @@ class CoarsePack(pack.Pack):
                     ldp = list(self._distribution_params)
                 else:
                     ldp = []
+                ldp += [pybamm.Time(),]
                 voltage_func = pybamm2julia.PybammJuliaFunction([sv, self.cell_current] + ldp, symbol, "full_voltage_func", True)
                 self.full_voltage_func = voltage_func
             symbol = deepcopy(self.full_voltage_func)
@@ -374,6 +376,7 @@ class CoarsePack(pack.Pack):
                     ldp = list(self._distribution_params)
                 else:
                     ldp = []
+                ldp += [pybamm.Time(),]
                 voltage_func = pybamm2julia.PybammJuliaFunction([sv, self.cell_current] + ldp, symbol, "reduced_voltage_func", True)
                 self.reduced_voltage_func = voltage_func
             symbol = deepcopy(self.reduced_voltage_func)

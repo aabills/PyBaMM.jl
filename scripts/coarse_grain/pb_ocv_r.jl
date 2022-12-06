@@ -16,6 +16,8 @@ ocv_R = pybamm.BaseModel()
 R = pybamm.Parameter("Cell resistance [Ohms]")
 C = pybamm.Parameter("Heat capacity [J.K-1]")
 h = pybamm.Parameter("Total heat transfer coefficient times area [W.K-1]")
+con_n_start = pybamm.Parameter("Initial concentration in negative electrode [mol.m-3]")
+con_p_start = pybamm.Parameter("Initial concentration in positive electrode [mol.m-3]")
 current = pybamm.Parameter("Current function [A]")
 
 pos_elec_cap = pybamm.Parameter("Positive electrode capacity [A.h]")
@@ -48,19 +50,24 @@ ocv_R.variables = pydict(Dict(
     "Terminal voltage [V]" => P_OCV(pos_elec_sto) - N_OCV(neg_elec_sto) - current*R
 ))
 
-param = pybamm.ParameterValues(
-    pydict(Dict(
-        "Cell resistance [Ohms]" => 1,
-        "Heat capacity [J.K-1]" => 1.5,
-        "Total heat transfer coefficient times area [W.K-1]" => 1,
-        "Positive electrode capacity [A.h]" => 1,
-        "Negative electrode capacity [A.h]" => 1.0,
-        "Current function [A]" => 1.0,
-        "Ambient temperature [K]" => 298.0)
-    ))
+pv_chen.update(
+    pydict(
+        Dict(
+            "Cell resistance [Ohms]" => 0.05,
+            "Heat capacity [J.K-1]" => 1.5,
+            "Total heat transfer coefficient times area [W.K-1]" => 1,
+            "Positive electrode capacity [A.h]" => pv_chen["Nominal cell capacity [A.h]"],
+            "Negative electrode capacity [A.h]" => pv_chen["Nominal cell capacity [A.h]"],
+        )
+    ),
+    check_already_exists=false
+)
+ocv_R.initial_conditions = pydict(Dict(pos_elec_sto=> y, neg_elec_sto => x,cell_temperature => 298))
+
+
 x,y = pybamm.lithium_ion.get_initial_stoichiometries(1.0,pv_chen)
 
-ocv_R.initial_conditions = pydict(Dict(pos_elec_sto=> y, neg_elec_sto => x,cell_temperature => 298))
+
 
 submesh_types = pydict()
 var_pts = pydict()

@@ -1,21 +1,21 @@
 using PyBaMM
-using LinearSolve
-using TerminalLoggers
-using JLD2
+using DataInterpolations
+using ProgressMeter
 using Plots
 plotly()
 
-pybamm = pyimport("pybamm")
-pybamm2julia = pyimport("pybamm2julia")
-setup_circuit = pyimport("setup_circuit")
-pack = pyimport("pack")
-coarse_pack = pyimport("coarse_pack")
+pybamm = PyBaMM.pybamm
+pack = PyBaMM.pack
+pybamm2julia = PyBaMM.pybamm2julia
+setup_circuit = PyBaMM.setup_circuit
+coarse_pack = PyBaMM.coarse_pack
+
 
 
 Np = 3
 Ns = 3
 
-curr = 0.6*Np
+curr = 5.0*Np
 
 p = nothing 
 t = 0.0
@@ -25,32 +25,121 @@ options = Dict("thermal" => "lumped")
 
 
 full_model = pybamm.lithium_ion.DFN(name="DFN", options=options)
-reduced_model = pybamm.lithium_ion.SPMe(name="spm", options=options)
+pv_chen = pybamm.ParameterValues("Chen2020")
+sim = pybamm.Simulation(full_model, parameter_values=pv_chen)
+sim.build(initial_soc=1)
+timescale = pyconvert(Float64,sim.built_model.timescale.evaluate())
+sol = sim.solve(collect(0:3600))
 
+OCV = pyconvert(Vector{Float64},sol["Measured open circuit voltage [V]"].entries)
+V = pyconvert(Vector{Float64},sol["Terminal voltage [V]"].entries)
+I = pyconvert(Vector{Float64},sol["Current [A]"].entries)
+t = pyconvert(Vector{Float64},sol["Time"].entries)
+R = (OCV.-V)./I
 
+RI = CubicSpline(R,t)
+
+function resistance(t)
+    return RI(t)
+end
+
+resist_param = pybamm2julia.PsuedoInputParameter("spline_resistance")
+
+resist_pybamm = pybamm2julia.PybammJuliaFunction([pybamm.Time()],nothing,"resistance",shape=(1,1),false)
 #Really all this should be in setup_circuit. And setup_circuit should handle thermals
 netlist = setup_circuit.setup_circuit(Np, Ns, I=curr)
 full_cells = ["V0"]
 voltage_functional = true
-    
+
+pv_chen = pybamm.ParameterValues("Chen2020")
+
+ocv_R = pybamm.BaseModel()
+
+#Parameters
+R = pybamm.Parameter("Cell resistance [Ohms]")
+C = pybamm.Parameter("Heat capacity [J.K-1]")
+h = pybamm.Parameter("Total heat transfer coefficient times area [W.K-1]")
+con_n_start = pybamm.Parameter("Initial concentration in negative electrode [mol.m-3]")
+con_p_start = pybamm.Parameter("Initial concentration in positive electrode [mol.m-3]")
+current = pybamm.Parameter("Current function [A]")
+
+pos_elec_cap = pybamm.Parameter("Positive electrode capacity [A.h]")
+neg_elec_cap = pybamm.Parameter("Negative electrode capacity [A.h]")
+T_amb = pybamm.Parameter("Ambient temperature [K]")
+P_OCV = pv_chen["Positive electrode OCP [V]"]
+N_OCV = pv_chen["Negative electrode OCP [V]"]
+
+param = pybamm.LithiumIonParameters()
+
+V_min = pv_chen.evaluate(param.voltage_low_cut_dimensional)
+V_max = pv_chen.evaluate(param.voltage_high_cut_dimensional)
+C_n = pv_chen.evaluate(param.n.cap_init)
+C_p = pv_chen.evaluate(param.p.cap_init)
+n_Li = pv_chen.evaluate(param.n_Li_particles_init)
+
+#Variables
+terminal_voltage = pybamm.Variable("Terminal voltage [V]")
+cell_temperature = pybamm.Variable("Cell temperature [K]")
+pos_elec_sto = pybamm.Variable("Positive electrode stoichiometry")
+neg_elec_sto = pybamm.Variable("Negative electrode stoichiometry")
+timescale = 11346.612775644178
+#equations
+d_p_sto_dt = current*timescale/(pos_elec_cap*3600)
+d_n_sto_dt = -current*timescale/(neg_elec_cap*3600)
+dTdt = (current*current*R - h*(cell_temperature-T_amb))/C
+
+ocv_R.rhs = pydict(Dict(
+    pos_elec_sto => d_p_sto_dt,
+    neg_elec_sto => d_n_sto_dt,
+    cell_temperature => dTdt
+))
+
+#Variables
+ocv_R.variables = pydict(Dict(
+    "Cell temperature [K]" => cell_temperature,
+    "Terminal voltage [V]" => P_OCV(pos_elec_sto) - N_OCV(neg_elec_sto) - current*R,
+    "Positive electrode stoichiometry" => pos_elec_sto,
+    "Negative electrode stoichiometry" => neg_elec_sto
+))
+
+pv_chen.update(
+    pydict(
+        Dict(
+            "Cell resistance [Ohms]" => resist_pybamm,
+            "Heat capacity [J.K-1]" => 1.5,
+            "Total heat transfer coefficient times area [W.K-1]" => 1,
+            "Positive electrode capacity [A.h]" => C_p,
+            "Negative electrode capacity [A.h]" => C_n,
+        )
+    ),
+    check_already_exists=false
+)
+
+
+x,y = pybamm.lithium_ion.get_initial_stoichiometries(1.0,pv_chen)
+ocv_R.initial_conditions = pydict(Dict(pos_elec_sto=> y, neg_elec_sto => x,cell_temperature => 298))
+
+
+reduced_model = ocv_R
+full_model = full_model
+functional=true
+voltage_functional=true
+   
 pybamm_pack = coarse_pack.CoarsePack(
     full_model,
     reduced_model, 
     full_cells, 
     netlist, 
     functional=functional, 
-    thermal=true, 
+    thermal=false, 
     left_bc = "symmetry", 
-    voltage_functional=voltage_functional
+    voltage_functional=voltage_functional,
+    parameter_values=pv_chen
 )
 pybamm_pack.build_pack()
 
-
-timescale = pyconvert(Float64,pybamm_pack.reduced_timescale.evaluate())
 full_timescale = pyconvert(Float64,pybamm_pack.full_timescale.evaluate())
-if timescale!=full_timescale
-    @error "shit"
-end
+timescale=full_timescale
 
 if functional
     fullcellconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", inplace=true)
@@ -112,9 +201,10 @@ jl_func = eval(Meta.parse(pack_str))
 
 dy = similar(jl_vec)
 
-
+t=0.0
 println("Calculating Jacobian Sparsity")
 jac_sparsity = float(Symbolics.jacobian_sparsity((du,u)->jl_func(du,u,p,t),dy,jl_vec))
+
 
 if functional
     fullcellconverter = pybamm2julia.JuliaConverter(cache_type = "dual", inplace=true)
@@ -202,7 +292,7 @@ differential_vars = vcat(pack_eqs,arr)
 mass_matrix = sparse(diagm(differential_vars))
 func = ODEFunction(jl_func, mass_matrix=mass_matrix,jac_prototype=jac_sparsity)
 prob = ODEProblem(func, jl_vec, (0.0, 3600/timescale), nothing)
+t = "asdf"
 
-
-sol = solve(prob, Trapezoid(linsolve=KLUFactorization(),concrete_jac=true))
+sol = solve(prob, Trapezoid(concrete_jac=true))
 
