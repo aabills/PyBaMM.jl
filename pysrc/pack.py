@@ -573,7 +573,7 @@ class Pack(object):
                         voltage = self.batteries[
                             self.circuit_graph.edges[edge]["desc"]
                         ]["voltage"]
-                        if isinstance(self.unbuilt_model, pybamm.lithium_ion.SPM) or isinstance(self.unbuilt_model, pybamm.lithium_ion.SPMe) or self.voltage_functional:
+                        if self.voltage_functional:
                             self.cell_current.set_psuedo(
                                     self.batteries[
                                         self.circuit_graph.edges[edge]["desc"]
