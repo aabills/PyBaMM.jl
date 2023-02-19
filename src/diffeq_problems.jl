@@ -52,7 +52,7 @@ function _problem_setup(sim, tend, inputs;dae_type="implicit",preallocate=true,c
         ics = built_model.concatenated_initial_conditions
     else
         get_consistent_ics_solver.set_up(built_model)
-        get_consistent_ics_solver._set_initial_conditions(built_model,pydict(),false)
+        get_consistent_ics_solver._set_initial_conditions(built_model,0.0,pydict(),false)
         ics = pybamm.Vector(built_model.y0.full())
     end
     ics = pybamm.Addition(ics,pybamm.Scalar(0))

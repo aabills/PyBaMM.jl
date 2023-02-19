@@ -1,5 +1,5 @@
 [deps]
-pybamm = "=22.10.post1"
+pybamm = ""
 networkx = ""
 python = "=3.9"
 
