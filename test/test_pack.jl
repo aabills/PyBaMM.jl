@@ -15,7 +15,7 @@ using PyBaMM
   p = nothing 
   t = 0.0
   functional = true
-  options = Dict("thermal" => "lumped")
+  options = pydict(Dict("thermal" => "lumped"))
   model = pybamm.lithium_ion.DFN(name="DFN", options=options)
   netlist = setup_circuit.setup_circuit(Np, Ns, I=curr)   
   pybamm_pack = pack.Pack(model, netlist, functional=functional, thermal=true)
@@ -58,7 +58,7 @@ using PyBaMM
   pack_voltage_index = Np + 1
   pack_voltage = 1.0
   jl_vec[1:Np] .=  curr
-  jl_vec[pack_voltage_index] = pack_voltage
+  jl_vec[pack_voltage_index] =11
 
   pack_str = pyconvert(String, pack_str)
   jl_func = eval(Meta.parse(pack_str))
@@ -74,7 +74,7 @@ using PyBaMM
   func = ODEFunction(jl_func, mass_matrix=mass_matrix,jac_prototype=jac_sparsity)
   prob = ODEProblem(func, jl_vec, (0.0, 3600/timescale), nothing)
 
-  sol = solve(prob, Trapezoid(linsolve=KLUFactorization(),concrete_jac=true))
+  sol = solve(prob, QNDF(linsolve=KLUFactorization(),concrete_jac=true))
 
   @test size(Array(sol))[1] > 1
   @test size(Array(sol))[2] > 1
@@ -100,7 +100,7 @@ end
   p = nothing 
   t = 0.0
   functional = true
-  options = Dict("thermal" => "lumped")
+  options = pydict(Dict("thermal" => "lumped"))
   model = pybamm.lithium_ion.DFN(name="DFN", options=options)
   netlist = setup_circuit.setup_circuit(Np, Ns, I=curr)   
   pybamm_pack = pack.Pack(model, netlist, functional=functional, thermal=true, operating_mode = "CV")

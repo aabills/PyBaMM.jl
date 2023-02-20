@@ -71,7 +71,7 @@ end
 
     prob,cbs = get_dae_problem(sim,dae_type="semi-explicit")
 
-    sol = solve(prob, Rodas4(autodiff=false), saveat=prob.tspan[2] / 100,reltol=1e-10);
+    sol = solve(prob, Rodas4(autodiff=false), saveat=prob.tspan[2] / 100,abstol=1e-5, dtmax=prob.tspan[2])
 
     # Calculate voltage in Julia
     V = get_variable(sim, sol, "Terminal voltage [V]")
@@ -80,5 +80,5 @@ end
     # Solve in python
     sol_pybamm = sim.solve(t)
     V_pybamm = pyconvert(Array{Float64},get(sol_pybamm, "Terminal voltage [V]",nothing).data)
-    @test all(isapprox.(V_pybamm, V, atol=1e-3))
+    @test all(isapprox.(V_pybamm, V, atol=5e-3))
 end

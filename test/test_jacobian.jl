@@ -34,6 +34,6 @@ pybamm = pyimport("pybamm")
         pybamm_jac = similar(fd_jac)
         jac_fn!(pybamm_jac, u0, nothing, 0.0)
         
-        @test all(isapprox.(pybamm_jac,fd_jac, atol=1e-3))
+        @test all(isapprox.(pybamm_jac,fd_jac, rtol=1e-7))
     end
 end

@@ -100,11 +100,10 @@ class Pack(object):
         distribution_params = None,
         operating_mode = "CC",
         input_parameter_order = None,
-        initial_soc = 1.0
+        initial_soc = 1.0,
+        initial_pack_current = None,
+        initial_pack_temperature = None,
     ):
-        # this is going to be a work in progress for a while:
-        # for now, will just do it at the julia level
-
         # Build the cell expression tree with necessary parameters.
         # think about moving this to a separate function.
         self.top_bc = top_bc
@@ -144,6 +143,19 @@ class Pack(object):
         else:
             self._distribution_params = None
 
+        if initial_pack_current is None:
+            initial_pack_current = parameter_values["Current function [A]"]
+        if initial_pack_temperature is None:
+            initial_pack_temperature = parameter_values["Ambient temperature [K]"]
+        if self._thermal:
+            initial_inputs = {
+                "cell_current" : initial_pack_current,
+                "ambient_temperature" : initial_pack_temperature
+            }
+        else:
+            intitial_inputs = {
+                "cell_current" : initial_pack_current
+            }
 
         cell_current = pybamm2julia.PsuedoInputParameter("cell_current")
         self.cell_current = cell_current
@@ -166,6 +178,11 @@ class Pack(object):
         else:
             sim.build(initial_soc = initial_soc)
         self.len_cell_rhs = sim.built_model.len_rhs
+
+        get_consistent_ics_solver = pybamm.CasadiSolver()
+        get_consistent_ics_solver.set_up(sim.built_model, inputs=initial_inputs)
+        get_consistent_ics_solver._set_initial_conditions(sim.built_model,0.0,initial_inputs,False)
+
         
         if self._implicit:
             self.cell_model = pybamm.numpy_concatenation(
@@ -423,7 +440,7 @@ class Pack(object):
                     "cell": new_cell,
                     "voltage": terminal_voltage,
                     "current_replaced": False,
-                    "ics": self.built_model.concatenated_initial_conditions
+                    "ics": pybamm.Vector(self.built_model.y0.full())
                 }
                 if self._thermal:
                     node1_x = row["node1_x"]

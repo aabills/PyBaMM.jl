@@ -25,13 +25,8 @@ function _problem_setup(sim, tend, inputs;dae_type="implicit",preallocate=true,c
         fn_str = converter.build_julia_code(funcname=name)
         get_consistent_ics_solver = nothing
     else
-        if dae_type == "semi-explicit"
-            len_rhs = nothing
-            get_consistent_ics_solver = nothing
-        else
-            len_rhs = built_model.concatenated_rhs.size
-            get_consistent_ics_solver = pybamm.CasadiSolver()
-        end
+        len_rhs = built_model.concatenated_rhs.size
+        get_consistent_ics_solver = pybamm.CasadiSolver()
         converter = pybamm2julia.JuliaConverter(
             dae_type=dae_type,
             input_parameter_order=input_parameter_order,
@@ -50,9 +45,14 @@ function _problem_setup(sim, tend, inputs;dae_type="implicit",preallocate=true,c
 
     if get_consistent_ics_solver == nothing
         ics = built_model.concatenated_initial_conditions
-    else
-        get_consistent_ics_solver.set_up(built_model)
-        get_consistent_ics_solver._set_initial_conditions(built_model,0.0,pydict(),false)
+    else 
+        if inputs == nothing
+            dinputs = pydict()
+        else
+            dinputs = pydict(inputs)
+        end
+        get_consistent_ics_solver.set_up(built_model,inputs=inputs)
+        get_consistent_ics_solver._set_initial_conditions(built_model,0.0,dinputs,false)
         ics = pybamm.Vector(built_model.y0.full())
     end
     ics = pybamm.Addition(ics,pybamm.Scalar(0))

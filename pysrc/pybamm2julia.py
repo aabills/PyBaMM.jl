@@ -605,7 +605,7 @@ class JuliaConverter(object):
             row, col, data = scipy.sparse.find(value)
             m, n = value.shape
             np.set_printoptions(
-                threshold=max(np.get_printoptions()["threshold"], len(row) + 10)
+                threshold=sys.maxsize
             )
 
             val_string = "sparse({}, {}, {}{}, {}, {})".format(
