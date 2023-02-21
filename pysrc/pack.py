@@ -240,15 +240,6 @@ class Pack(object):
                         [sv, cell_current] + lsv, self.cell_model, "cell!", True
                     )
         self._sv_done = []
-
-        # get x and y coords for nodes from graph.
-        #node_xs = [n for n in range(max(self.circuit_graph.nodes) + 1)]
-        #node_ys = [n for n in range(max(self.circuit_graph.nodes) + 1)]
-        #for row in netlist.itertuples():
-        #    node_xs[row.node1] = row.node1_x
-        #    node_ys[row.node1] = row.node1_y
-        #self.node_xs = node_xs
-        #self.node_ys = node_ys
         self.batt_string = None
 
     def lolz(self):
