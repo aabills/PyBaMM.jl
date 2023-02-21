@@ -1,13 +1,6 @@
 #
 # convert an expression tree into a pack model
 #
-
-# TODO
-# - x lumped thermal for pouch cells?
-# - Jacobians
-# - parallel
-# - GPU offload
-# - smarter initialization (use assume all cells have same current, solve prob)
 import pybamm
 from copy import deepcopy
 import networkx as nx
@@ -103,6 +96,7 @@ class Pack(object):
         initial_soc = 1.0,
         initial_pack_current = None,
         initial_pack_temperature = None,
+        thermal_type = "legacy"
     ):
         # Build the cell expression tree with necessary parameters.
         # think about moving this to a separate function.
@@ -111,6 +105,8 @@ class Pack(object):
         self.left_bc = left_bc
         self.right_bc = right_bc
         self._operating_mode = operating_mode
+        self.thermal_type = thermal_type
+        self.thermal_graph = nx.Graph()
 
         self._input_parameter_order = input_parameter_order
 
@@ -153,7 +149,7 @@ class Pack(object):
                 "ambient_temperature" : initial_pack_temperature
             }
         else:
-            intitial_inputs = {
+            initial_inputs = {
                 "cell_current" : initial_pack_current
             }
 
@@ -245,7 +241,7 @@ class Pack(object):
 
 
         self.netlist = netlist
-        self.process_netlist()
+        self.process_netlist_from_liionpack()
 
         # get x and y coords for nodes from graph.
         node_xs = [n for n in range(max(self.circuit_graph.nodes) + 1)]
@@ -270,16 +266,22 @@ class Pack(object):
             self.batt_string = batt
         print(self.batt_string)
 
-    def process_netlist(self):
+    def process_netlist_from_liionpack(self):
         curr = [{} for i in range(len(self.netlist))]
         self.netlist.insert(0, "currents", curr)
-
+        locs = {}
+        #add z at some point if 3d
+        for row in self.netlist.itertuples():
+            locs.update({row.node1:[row.node1_x,row.node1_y]})
+            locs.update({row.node2:[row.node2_x,row.node2_y]})
         self.netlist = self.netlist.rename(
             columns={"node1": "source", "node2": "target"}
         )
         self.netlist["positive_node"] = self.netlist["source"]
         self.netlist["negative_node"] = self.netlist["target"]
         self.circuit_graph = nx.from_pandas_edgelist(self.netlist, edge_attr=True)
+        for key,n in self.circuit_graph.nodes.items():
+            n["loc"]=locs[key]
 
     # Function that adds new cells, and puts them in the appropriate places.
     def add_new_cell(self):
@@ -316,6 +318,96 @@ class Pack(object):
         my_offsetter = offsetter(self.offset)
         my_offsetter.add_offset_to_state_vectors(symbol)
         return symbol
+
+    def add_thermal_nodes_legacy(self):
+        self.thermal_graph.add_nodes_from(self.batteries)
+        if self.left_bc == "ambient":
+            self.thermal_graph.add_node("T_AMB_L")
+        if self.right_bc == "ambient":
+            self.thermal_graph.add_node("T_AMB_R")
+        if self.top_bc == "ambient":
+            self.thermal_graph.add_node("T_AMB_T")
+        if self.bottom_bc == "ambient":
+            self.thermal_graph.add_node("T_AMB_B")
+        
+    
+    def add_thermal_edges_legacy(self):
+        for desc in self.batteries:
+            batt = self.batteries[desc]
+            batt_x = batt["x"]
+            batt_y = batt["y"]
+            x_diffs = []
+            y_diffs = []
+            for other_desc in self.batteries:
+                if other_desc == desc:
+                    # its the same battery
+                    continue
+                else:
+                    other_x = self.batteries[other_desc]["x"]
+                    other_y = self.batteries[other_desc]["y"]
+                    y_diff = other_y - batt_y
+                    x_diff = other_x - batt_x
+                    x_diffs.append(x_diff)
+                    y_diffs.append(y_diff)
+                    is_vert = (abs(y_diff) == 3) and other_x == batt_x
+                    is_horz = (abs(x_diff) == 1) and other_y == batt_y
+                    #Add an edge if the two batteries are next to each other
+                    if is_vert or is_horz:
+                        self.thermal_graph.add_edge(desc, other_desc)
+            #Left Cell. 
+            if all([x_diff <= 0.1 for x_diff in x_diffs]):
+                if self.left_bc == "ambient":
+                    self.thermal_graph.add_edge(desc, "T_AMB_L")
+                elif self.left_bc == "symmetry":
+                    self.thermal_graph.add_edge(desc, desc)
+                else:
+                    raise NotImplementedError("BC's must be ambient or symmetry")
+            #Right Cell
+            if all([x_diff >= 0 for x_diff in x_diffs]):
+                if self.right_bc == "ambient":
+                    self.thermal_graph.add_edge(desc, "T_AMB_R")
+                elif self.top_bc == "symmetry":
+                    self.thermal_graph.add_edge(desc, desc)
+                else:
+                    raise NotImplementedError("BC's must be ambient or symmetry")
+            #Top Cell
+            if all([y_diff <= 0 for y_diff in y_diffs]):
+                if self.top_bc == "ambient":
+                    self.thermal_graph.add_edge(desc, "T_AMB_T")
+                elif self.top_bc == "symmetry":
+                    self.thermal_graph.add_edge(desc, desc)
+                else:
+                    raise NotImplementedError("BC's must be ambient or symmetry")
+            #Bottom Cell
+            if all([y_diff >= 0 for y_diff in y_diffs]):
+                if self.bottom_bc == "ambient":
+                    self.thermal_graph.add_edge(desc, "T_AMB_B")
+                elif self.bottom_bc == "symmetry":
+                    self.thermal_graph.add_edge(desc, desc)
+                else:
+                    raise NotImplementedError("BC's must be ambient or symmetry")
+
+    def build_thermal_equations_with_graph(self):
+        for node in self.thermal_graph.nodes:
+            if node[0] == "V":
+                #node is a battery
+                expr = 0
+                for neighbor in self.thermal_graph.neighbors(node):
+                    if neighbor[0:5] == "T_AMB":
+                        expr += self.pack_ambient
+                    elif neighbor[0] == "V":
+                        expr += self.batteries[neighbor]["temperature"]
+                    else:
+                        raise NotImplementedError("only batteries and ambient temperature can be calculated right now.")
+                num_neighbors = len(self.thermal_graph[node])
+                expr = expr/num_neighbors
+                self.ambient_temperature.set_psuedo(self.batteries[node]["cell"], expr)
+            elif node[0:5] == "T_AMB":
+                continue
+            else:
+                raise NotImplementedError("only batteries and ambient temperature can be calculated right now.")
+                        
+            
 
     def build_thermal_equations(self):
         for desc in self.batteries:
@@ -470,8 +562,15 @@ class Pack(object):
                 self.batteries[desc].update({"distribution parameters" : params})
                 self.offset += self.cell_size
 
-        if self._thermal:
+        if self.thermal_type == "nonx":
             self.build_thermal_equations()
+        elif self.thermal_type == "legacy":
+            self.add_thermal_nodes_legacy()
+            self.add_thermal_edges_legacy()
+            self.build_thermal_equations_with_graph()
+        else:
+            raise NotImplementedError("Thermal type not implemented")
+
 
         self.num_cells = len(self.batteries)
 

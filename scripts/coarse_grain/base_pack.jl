@@ -12,7 +12,7 @@
   p = nothing 
   t = 0.0
   functional = true
-  options = Dict("thermal" => "lumped")
+  options = pydict(Dict("thermal" => "lumped"))
   model = pybamm.lithium_ion.DFN(name="DFN", options=options)
   netlist = setup_circuit.setup_circuit(Np, Ns, I=curr)   
   pybamm_pack = pack.Pack(model, netlist, functional=functional, thermal=true)
