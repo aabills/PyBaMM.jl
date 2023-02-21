@@ -240,8 +240,7 @@ class Pack(object):
         self._sv_done = []
 
 
-        self.netlist = netlist
-        self.process_netlist_from_liionpack()
+        self.process_netlist_from_liionpack(netlist)
 
         # get x and y coords for nodes from graph.
         node_xs = [n for n in range(max(self.circuit_graph.nodes) + 1)]
@@ -266,20 +265,20 @@ class Pack(object):
             self.batt_string = batt
         print(self.batt_string)
 
-    def process_netlist_from_liionpack(self):
-        curr = [{} for i in range(len(self.netlist))]
-        self.netlist.insert(0, "currents", curr)
+    def process_netlist_from_liionpack(self, netlist):
+        curr = [{} for i in range(len(netlist))]
+        netlist.insert(0, "currents", curr)
         locs = {}
         #add z at some point if 3d
-        for row in self.netlist.itertuples():
+        for row in netlist.itertuples():
             locs.update({row.node1:[row.node1_x,row.node1_y]})
             locs.update({row.node2:[row.node2_x,row.node2_y]})
-        self.netlist = self.netlist.rename(
+        netlist = netlist.rename(
             columns={"node1": "source", "node2": "target"}
         )
-        self.netlist["positive_node"] = self.netlist["source"]
-        self.netlist["negative_node"] = self.netlist["target"]
-        self.circuit_graph = nx.from_pandas_edgelist(self.netlist, edge_attr=True)
+        netlist["positive_node"] = netlist["source"]
+        netlist["negative_node"] = netlist["target"]
+        self.circuit_graph = nx.from_pandas_edgelist(netlist, edge_attr=True)
         for key,n in self.circuit_graph.nodes.items():
             n["loc"]=locs[key]
 
@@ -522,7 +521,8 @@ class Pack(object):
         # now we know the offset, we should "build" the batteries here. will still need to replace the currents later.
         self.offset = num_loops + len(curr_sources)
         self.batteries = OrderedDict()
-        for index, row in self.netlist.iterrows():
+        for edge in self.circuit_graph.edges:
+            row = self.circuit_graph.edges[edge]
             desc = row["desc"]
             # I'd like a better way to do this.
             if desc[0] == "V":

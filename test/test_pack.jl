@@ -159,7 +159,7 @@ end
   func = ODEFunction(jl_func, mass_matrix=mass_matrix,jac_prototype=jac_sparsity)
   prob = ODEProblem(func, jl_vec, (0.0, 3600/timescale), nothing)
 
-  sol = solve(prob, Trapezoid(linsolve=KLUFactorization(),concrete_jac=true))
+  sol = solve(prob, QNDF(linsolve=KLUFactorization(),concrete_jac=true))
 
   @test all(isapprox(sol[4,:],12.0*ones(length(sol.t)),atol=1e-2))
 
