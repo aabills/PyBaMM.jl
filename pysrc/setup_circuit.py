@@ -1,5 +1,24 @@
 import pandas as pd
 import numpy as np
+import networkx as nx
+
+def process_netlist_from_liionpack(netlist):
+    curr = [{} for i in range(len(netlist))]
+    netlist.insert(0, "currents", curr)
+    locs = {}
+    #add z at some point if 3d
+    for row in netlist.itertuples():
+        locs.update({row.node1:[row.node1_x,row.node1_y]})
+        locs.update({row.node2:[row.node2_x,row.node2_y]})
+    netlist = netlist.rename(
+        columns={"node1": "source", "node2": "target"}
+    )
+    netlist["positive_node"] = netlist["source"]
+    netlist["negative_node"] = netlist["target"]
+    circuit_graph = nx.from_pandas_edgelist(netlist, edge_attr=True)
+    for key,n in circuit_graph.nodes.items():
+        n["loc"]=locs[key]
+    return circuit_graph
 
 def setup_circuit(
     Np=1,

@@ -79,7 +79,7 @@ class Pack(object):
     def __init__(
         self,
         model,
-        netlist,
+        circuit_graph,
         parameter_values=None,
         functional=False,
         voltage_functional=False,
@@ -107,6 +107,8 @@ class Pack(object):
         self._operating_mode = operating_mode
         self.thermal_type = thermal_type
         self.thermal_graph = nx.Graph()
+
+        self.circuit_graph = circuit_graph
 
         self._input_parameter_order = input_parameter_order
 
@@ -239,17 +241,14 @@ class Pack(object):
                     )
         self._sv_done = []
 
-
-        self.process_netlist_from_liionpack(netlist)
-
         # get x and y coords for nodes from graph.
-        node_xs = [n for n in range(max(self.circuit_graph.nodes) + 1)]
-        node_ys = [n for n in range(max(self.circuit_graph.nodes) + 1)]
-        for row in netlist.itertuples():
-            node_xs[row.node1] = row.node1_x
-            node_ys[row.node1] = row.node1_y
-        self.node_xs = node_xs
-        self.node_ys = node_ys
+        #node_xs = [n for n in range(max(self.circuit_graph.nodes) + 1)]
+        #node_ys = [n for n in range(max(self.circuit_graph.nodes) + 1)]
+        #for row in netlist.itertuples():
+        #    node_xs[row.node1] = row.node1_x
+        #    node_ys[row.node1] = row.node1_y
+        #self.node_xs = node_xs
+        #self.node_ys = node_ys
         self.batt_string = None
 
     def lolz(self):
@@ -264,23 +263,6 @@ class Pack(object):
                 batt += one_parallel + "\n"
             self.batt_string = batt
         print(self.batt_string)
-
-    def process_netlist_from_liionpack(self, netlist):
-        curr = [{} for i in range(len(netlist))]
-        netlist.insert(0, "currents", curr)
-        locs = {}
-        #add z at some point if 3d
-        for row in netlist.itertuples():
-            locs.update({row.node1:[row.node1_x,row.node1_y]})
-            locs.update({row.node2:[row.node2_x,row.node2_y]})
-        netlist = netlist.rename(
-            columns={"node1": "source", "node2": "target"}
-        )
-        netlist["positive_node"] = netlist["source"]
-        netlist["negative_node"] = netlist["target"]
-        self.circuit_graph = nx.from_pandas_edgelist(netlist, edge_attr=True)
-        for key,n in self.circuit_graph.nodes.items():
-            n["loc"]=locs[key]
 
     # Function that adds new cells, and puts them in the appropriate places.
     def add_new_cell(self):

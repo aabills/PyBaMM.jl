@@ -17,8 +17,9 @@ using PyBaMM
   functional = true
   options = pydict(Dict("thermal" => "lumped"))
   model = pybamm.lithium_ion.DFN(name="DFN", options=options)
-  netlist = setup_circuit.setup_circuit(Np, Ns, I=curr)   
-  pybamm_pack = pack.Pack(model, netlist, functional=functional, thermal=true)
+  netlist = setup_circuit.setup_circuit(Np, Ns, I=curr) 
+  circuit_graph = setup_circuit.process_netlist_from_liionpack(netlist)  
+  pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermal=true)
   pybamm_pack.build_pack()
   timescale = pyconvert(Float64,pybamm_pack.timescale.evaluate())
   cellconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", inplace=true)
@@ -102,8 +103,9 @@ end
   functional = true
   options = pydict(Dict("thermal" => "lumped"))
   model = pybamm.lithium_ion.DFN(name="DFN", options=options)
-  netlist = setup_circuit.setup_circuit(Np, Ns, I=curr)   
-  pybamm_pack = pack.Pack(model, netlist, functional=functional, thermal=true, operating_mode = "CV")
+  netlist = setup_circuit.setup_circuit(Np, Ns, I=curr)  
+  circuit_graph = setup_circuit.process_netlist_from_liionpack(netlist) 
+  pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermal=true, operating_mode = "CV")
   pybamm_pack.build_pack()
   timescale = pyconvert(Float64,pybamm_pack.timescale.evaluate())
   cellconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", inplace=true)
