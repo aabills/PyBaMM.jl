@@ -20,6 +20,7 @@ const pack = PythonCall.pynew()
 const coarse_pack = PythonCall.pynew()
 const pybamm2julia = PythonCall.pynew()
 const setup_circuit = PythonCall.pynew()
+const setup_thermal_graph = PythonCall.pynew()
 const sys = PythonCall.pynew()
 const pycopy = PythonCall.pynew()
 
@@ -31,6 +32,7 @@ function __init__()
     PythonCall.pycopy!(coarse_pack, pyimport("coarse_pack"))
     PythonCall.pycopy!(pybamm2julia, pyimport("pybamm2julia"))
     PythonCall.pycopy!(setup_circuit, pyimport("setup_circuit"))
+    PythonCall.pycopy!(setup_thermal_graph, pyimport("setup_thermal_graph"))
     PythonCall.pycopy!(pycopy, pyimport("copy"))
 end
 

@@ -8,6 +8,7 @@ using PyBaMM
   pack = PyBaMM.pack
   pybamm2julia = PyBaMM.pybamm2julia
   setup_circuit = PyBaMM.setup_circuit
+  setup_thermal_graph = PyBaMM.setup_thermal_graph
 
   Np = 3
   Ns = 3
@@ -17,10 +18,18 @@ using PyBaMM
   functional = true
   options = pydict(Dict("thermal" => "lumped"))
   model = pybamm.lithium_ion.DFN(name="DFN", options=options)
+
   netlist = setup_circuit.setup_circuit(Np, Ns, I=curr) 
   circuit_graph = setup_circuit.process_netlist_from_liionpack(netlist)  
-  pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermal=true)
+  thermals = setup_thermal_graph.LegacyThermalGraph(circuit_graph)
+  thermal_graph = thermals.thermal_graph
+
+
+
+  pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermal_graph=thermal_graph)
   pybamm_pack.build_pack()
+
+
   timescale = pyconvert(Float64,pybamm_pack.timescale.evaluate())
   cellconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", inplace=true)
   cellconverter.convert_tree_to_intermediate(pybamm_pack.cell_model)
@@ -94,6 +103,7 @@ end
   pack = PyBaMM.pack
   pybamm2julia = PyBaMM.pybamm2julia
   setup_circuit = PyBaMM.setup_circuit
+  setup_thermal_graph = PyBaMM.setup_thermal_graph
 
   Np = 3
   Ns = 3
@@ -103,9 +113,14 @@ end
   functional = true
   options = pydict(Dict("thermal" => "lumped"))
   model = pybamm.lithium_ion.DFN(name="DFN", options=options)
+
   netlist = setup_circuit.setup_circuit(Np, Ns, I=curr)  
   circuit_graph = setup_circuit.process_netlist_from_liionpack(netlist) 
-  pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermal=true, operating_mode = "CV")
+  thermals = setup_thermal_graph.LegacyThermalGraph(circuit_graph)
+  thermal_graph = thermals.thermal_graph
+
+
+  pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermal_graph=thermal_graph, operating_mode = "CV")
   pybamm_pack.build_pack()
   timescale = pyconvert(Float64,pybamm_pack.timescale.evaluate())
   cellconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", inplace=true)

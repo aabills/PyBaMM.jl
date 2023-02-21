@@ -80,34 +80,24 @@ class Pack(object):
         self,
         model,
         circuit_graph,
+        thermal_graph = None,
         parameter_values=None,
         functional=False,
         voltage_functional=False,
-        thermal=False,
         build_jac=False,
         implicit=False,
-        top_bc = "ambient",
-        bottom_bc = "ambient",
-        left_bc = "ambient",
-        right_bc = "ambient",
         distribution_params = None,
         operating_mode = "CC",
         input_parameter_order = None,
         initial_soc = 1.0,
         initial_pack_current = None,
         initial_pack_temperature = None,
-        thermal_type = "legacy"
     ):
         # Build the cell expression tree with necessary parameters.
         # think about moving this to a separate function.
-        self.top_bc = top_bc
-        self.bottom_bc = bottom_bc
-        self.left_bc = left_bc
-        self.right_bc = right_bc
         self._operating_mode = operating_mode
-        self.thermal_type = thermal_type
-        self.thermal_graph = nx.Graph()
-
+        
+        self.thermal_graph = thermal_graph
         self.circuit_graph = circuit_graph
 
         self._input_parameter_order = input_parameter_order
@@ -119,7 +109,6 @@ class Pack(object):
         if self.voltage_functional:
             self.voltage_func = None
         self.build_jac = build_jac
-        self._thermal = thermal
 
         if parameter_values is None:
             parameter_values = model.default_parameter_values
@@ -145,11 +134,17 @@ class Pack(object):
             initial_pack_current = parameter_values["Current function [A]"]
         if initial_pack_temperature is None:
             initial_pack_temperature = parameter_values["Ambient temperature [K]"]
-        if self._thermal:
+        if self.thermal_graph is not None:
             initial_inputs = {
                 "cell_current" : initial_pack_current,
                 "ambient_temperature" : initial_pack_temperature
             }
+            self.pack_ambient = pybamm.Scalar(
+                parameter_values["Ambient temperature [K]"]
+            )
+            ambient_temperature = pybamm2julia.PsuedoInputParameter("ambient_temperature")
+            self.ambient_temperature = ambient_temperature
+            parameter_values.update({"Ambient temperature [K]": ambient_temperature})
         else:
             initial_inputs = {
                 "cell_current" : initial_pack_current
@@ -159,13 +154,6 @@ class Pack(object):
         self.cell_current = cell_current
         parameter_values.update({"Current function [A]": cell_current})
 
-        if self._thermal:
-            self.pack_ambient = pybamm.Scalar(
-                parameter_values["Ambient temperature [K]"]
-            )
-            ambient_temperature = pybamm2julia.PsuedoInputParameter("ambient_temperature")
-            self.ambient_temperature = ambient_temperature
-            parameter_values.update({"Ambient temperature [K]": ambient_temperature})
 
         self.cell_parameter_values = parameter_values
         self.unbuilt_model = model
@@ -216,7 +204,7 @@ class Pack(object):
                     lsv.append(psuedo_parameter)
 
             if self._implicit:
-                if self._thermal:
+                if self.thermal_graph is not None:
                     self.cell_model = pybamm2julia.PybammJuliaFunction(
                         [sv, cell_current, ambient_temperature, dsv] + lsv,
                         self.cell_model,
@@ -228,7 +216,7 @@ class Pack(object):
                         [sv, cell_current, dsv] + lsv, self.cell_model, "cell!", True
                     )
             else:
-                if self._thermal:
+                if self.thermal_graph is not None:
                     self.cell_model = pybamm2julia.PybammJuliaFunction(
                         [sv, cell_current, ambient_temperature] + lsv,
                         self.cell_model,
@@ -290,74 +278,6 @@ class Pack(object):
         my_offsetter = offsetter(self.offset)
         my_offsetter.add_offset_to_state_vectors(symbol)
         return symbol
-
-    def add_thermal_nodes_legacy(self):
-        self.thermal_graph.add_nodes_from(self.batteries)
-        if self.left_bc == "ambient":
-            self.thermal_graph.add_node("T_AMB_L")
-        if self.right_bc == "ambient":
-            self.thermal_graph.add_node("T_AMB_R")
-        if self.top_bc == "ambient":
-            self.thermal_graph.add_node("T_AMB_T")
-        if self.bottom_bc == "ambient":
-            self.thermal_graph.add_node("T_AMB_B")
-        
-    
-    def add_thermal_edges_legacy(self):
-        for desc in self.batteries:
-            batt = self.batteries[desc]
-            batt_x = batt["x"]
-            batt_y = batt["y"]
-            x_diffs = []
-            y_diffs = []
-            for other_desc in self.batteries:
-                if other_desc == desc:
-                    # its the same battery
-                    continue
-                else:
-                    other_x = self.batteries[other_desc]["x"]
-                    other_y = self.batteries[other_desc]["y"]
-                    y_diff = other_y - batt_y
-                    x_diff = other_x - batt_x
-                    x_diffs.append(x_diff)
-                    y_diffs.append(y_diff)
-                    is_vert = (abs(y_diff) == 3) and other_x == batt_x
-                    is_horz = (abs(x_diff) == 1) and other_y == batt_y
-                    #Add an edge if the two batteries are next to each other
-                    if is_vert or is_horz:
-                        self.thermal_graph.add_edge(desc, other_desc)
-            #Left Cell. 
-            if all([x_diff <= 0.1 for x_diff in x_diffs]):
-                if self.left_bc == "ambient":
-                    self.thermal_graph.add_edge(desc, "T_AMB_L")
-                elif self.left_bc == "symmetry":
-                    self.thermal_graph.add_edge(desc, desc)
-                else:
-                    raise NotImplementedError("BC's must be ambient or symmetry")
-            #Right Cell
-            if all([x_diff >= 0 for x_diff in x_diffs]):
-                if self.right_bc == "ambient":
-                    self.thermal_graph.add_edge(desc, "T_AMB_R")
-                elif self.top_bc == "symmetry":
-                    self.thermal_graph.add_edge(desc, desc)
-                else:
-                    raise NotImplementedError("BC's must be ambient or symmetry")
-            #Top Cell
-            if all([y_diff <= 0 for y_diff in y_diffs]):
-                if self.top_bc == "ambient":
-                    self.thermal_graph.add_edge(desc, "T_AMB_T")
-                elif self.top_bc == "symmetry":
-                    self.thermal_graph.add_edge(desc, desc)
-                else:
-                    raise NotImplementedError("BC's must be ambient or symmetry")
-            #Bottom Cell
-            if all([y_diff >= 0 for y_diff in y_diffs]):
-                if self.bottom_bc == "ambient":
-                    self.thermal_graph.add_edge(desc, "T_AMB_B")
-                elif self.bottom_bc == "symmetry":
-                    self.thermal_graph.add_edge(desc, desc)
-                else:
-                    raise NotImplementedError("BC's must be ambient or symmetry")
 
     def build_thermal_equations_with_graph(self):
         for node in self.thermal_graph.nodes:
@@ -426,7 +346,8 @@ class Pack(object):
                     "current_replaced": False,
                     "ics": pybamm.Vector(self.built_model.y0.full())
                 }
-                if self._thermal:
+                #NOTE: This may change in the future
+                if self.thermal_graph is not None:
                     node1_x = row["node1_x"]
                     node2_x = row["node2_x"]
                     node1_y = row["node1_y"]
@@ -454,14 +375,8 @@ class Pack(object):
                 self.batteries[desc].update({"distribution parameters" : params})
                 self.offset += self.cell_size
 
-        if self.thermal_type == "nonx":
-            raise NotImplementedError("nonx no longer supported")
-        elif self.thermal_type == "legacy":
-            self.add_thermal_nodes_legacy()
-            self.add_thermal_edges_legacy()
+        if self.thermal_graph is not None:
             self.build_thermal_equations_with_graph()
-        else:
-            raise NotImplementedError("Thermal type not implemented")
 
 
         self.num_cells = len(self.batteries)
@@ -477,10 +392,7 @@ class Pack(object):
 
         cells = [d["cell"] for d in self.batteries.values()]
         cell_eqs = pybamm.numpy_concatenation(*cells)
-
-
-
-
+        
         self.pack = pybamm.numpy_concatenation(pack_eqs, cell_eqs)
         if self._implicit:
             len_sv = len(cells)*self.cell_size + len(pack_eqs_vec)
@@ -679,13 +591,6 @@ class Pack(object):
                 self.forcing_functions = forcing_functions
                 self.termination_functions = termination_functions
                 pack_equations.append(forcing_functions[0])
-
-
-                    
-                    
-
-                    
-
         # concatenate all the pack equations and return it.
         return pack_equations
 
