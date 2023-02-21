@@ -378,87 +378,6 @@ class Pack(object):
                 continue
             else:
                 raise NotImplementedError("only batteries and ambient temperature can be calculated right now.")
-                        
-            
-
-    def build_thermal_equations(self):
-        for desc in self.batteries:
-            batt = self.batteries[desc]
-            batt_x = batt["x"]
-            batt_y = batt["y"]
-            neighbors = []
-            x_diffs = []
-            y_diffs = []
-            for other_desc in self.batteries:
-                if other_desc == desc:
-                    # its the same battery
-                    continue
-                else:
-                    other_x = self.batteries[other_desc]["x"]
-                    other_y = self.batteries[other_desc]["y"]
-                    y_diff = other_y - batt_y
-                    x_diff = other_x - batt_x
-                    x_diffs.append(x_diff)
-                    y_diffs.append(y_diff)
-                    is_vert = (abs(y_diff) == 3) and other_x == batt_x
-                    is_horz = (abs(x_diff) == 1) and other_y == batt_y
-                    if is_vert or is_horz:
-                        neighbors.append(other_desc)
-            num_neighbors = len(neighbors)
-            if len(neighbors) > 0:
-                expr = self.batteries[neighbors[0]]["temperature"]
-            else:
-                expr = self.pack_ambient
-                num_neighbors += 1
-            for neighbor in neighbors[1:]:
-                expr += self.batteries[neighbor]["temperature"]
-            #Left Cell
-            if all([x_diff <= 0.1 for x_diff in x_diffs]):
-                if self.left_bc == "ambient":
-                    neighbors.append(self.pack_ambient)
-                    expr += self.pack_ambient
-                    num_neighbors += 1
-                elif self.left_bc == "symmetry":
-                    pass
-                else:
-                    raise NotImplementedError("BC's must be ambient or symmetry")
-            #Right Cell
-            if all([x_diff >= 0 for x_diff in x_diffs]):
-                if self.right_bc == "ambient":
-                    neighbors.append(self.pack_ambient)
-                    expr += self.pack_ambient
-                    num_neighbors += 1
-                elif self.top_bc == "symmetry":
-                    pass
-                else:
-                    raise NotImplementedError("BC's must be ambient or symmetry")
-            #Top Cell
-            if all([y_diff <= 0 for y_diff in y_diffs]):
-                if self.top_bc == "ambient":
-                    neighbors.append(self.pack_ambient)
-                    expr += self.pack_ambient
-                    num_neighbors += 1
-                elif self.top_bc == "symmetry":
-                    pass
-                else:
-                    raise NotImplementedError("BC's must be ambient or symmetry")
-            #Bottom Cell
-            if all([y_diff >= 0 for y_diff in y_diffs]):
-                if self.bottom_bc == "ambient":
-                    neighbors.append(self.pack_ambient)
-                    expr += self.pack_ambient
-                    num_neighbors += 1
-                elif self.bottom_bc == "symmetry":
-                    pass
-                else:
-                    raise NotImplementedError("BC's must be ambient or symmetry")
-            expr = expr / num_neighbors
-            self.ambient_temperature.set_psuedo(self.batteries[desc]["cell"], expr)
-            if self.build_jac:
-                self.ambient_temperature.set_psuedo(
-                    self.batteries[desc]["cell"].expr, expr
-                )
-            batt.update({"neighbors": neighbors})
 
     def build_pack(self):
         # this function builds expression trees to compute the current.
@@ -536,7 +455,7 @@ class Pack(object):
                 self.offset += self.cell_size
 
         if self.thermal_type == "nonx":
-            self.build_thermal_equations()
+            raise NotImplementedError("nonx no longer supported")
         elif self.thermal_type == "legacy":
             self.add_thermal_nodes_legacy()
             self.add_thermal_edges_legacy()
