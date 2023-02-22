@@ -1,5 +1,6 @@
 import networkx as nx
 from collections import OrderedDict
+import pybamm
 
 
 class LegacyThermalGraph(object):
@@ -105,11 +106,17 @@ class LegacyThermalGraph(object):
                 else:
                     raise NotImplementedError("BC's must be ambient or symmetry")
 
+    def modify_variables(self, parameter_values, pack_params):
+        if self.heat_transfer_coefficient is None:
+            return parameter_values
+
 
 class RibbonCoolingGraph(object):
     def __init__(
         self,
-        circuit_graph
+        circuit_graph,
+        mdot=None,
+        cp=None
     ):
         xs = []
         ys = []
@@ -213,5 +220,3 @@ class RibbonCoolingGraph(object):
                         same_pipe = node_p == other_p
                         if same_pipe and is_node_0:
                             self.thermal_graph.add_edge(node_name, other_name)
-                        
-

@@ -6,16 +6,15 @@ pybamm2julia = PyBaMM.pybamm2julia
 setup_circuit = PyBaMM.setup_circuit
 setup_thermal_graph = PyBaMM.setup_thermal_graph
 
-Np = 10
-Ns = 10
+Np = 3
+Ns = 3
 curr = 1.8
-p = nothing 
 t = 0.0
 functional = true
 voltage_functional = true
 
 options = pydict(Dict("thermal" => "lumped"))
-model = pybamm.lithium_ion.SPM(name="DFN", options=options)
+model = pybamm.lithium_ion.DFN(name="DFN", options=options)
 
 netlist = setup_circuit.setup_circuit(Np, Ns, I=curr)  
 circuit_graph = setup_circuit.process_netlist_from_liionpack(netlist) 
@@ -25,11 +24,14 @@ thermal_graph = thermals.thermal_graph
 thermal_pipe = setup_thermal_graph.RibbonCoolingGraph(circuit_graph)
 thermal_pipe_graph = thermal_pipe.thermal_graph
 
+input_parameter_order = ["mdot"]
+p = [1.0]
 
-pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermal_graph=thermals, voltage_functional=voltage_functional)
+
+pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermals=thermals, voltage_functional=voltage_functional, input_parameter_order=input_parameter_order)
 pybamm_pack.build_pack()
 
-#=
+
 
 if voltage_functional
     voltageconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", inplace=true)
@@ -49,16 +51,18 @@ cell_str = cellconverter.build_julia_code()
 cell_str = pyconvert(String, cell_str)
 cell! = eval(Meta.parse(cell_str))
 
-myconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic")
+
+
+myconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", override_psuedo=true, input_parameter_order=input_parameter_order)
 myconverter.convert_tree_to_intermediate(pybamm_pack.pack)
 pack_str = myconverter.build_julia_code()
 
-icconverter = pybamm2julia.JuliaConverter(override_psuedo = true)
+icconverter = pybamm2julia.JuliaConverter(override_psuedo = true, input_parameter_order=input_parameter_order)
 icconverter.convert_tree_to_intermediate(pybamm_pack.ics)
 ic_str = icconverter.build_julia_code()
 
 u0 = eval(Meta.parse(pyconvert(String,ic_str)))
-jl_vec = u0()
+jl_vec = u0(p)
 
 pack_str = pyconvert(String, pack_str)
 jl_func = eval(Meta.parse(pack_str))
@@ -83,7 +87,7 @@ cell_str = cellconverter.build_julia_code()
 cell_str = pyconvert(String, cell_str)
 cell! = eval(Meta.parse(cell_str))
 
-myconverter = pybamm2julia.JuliaConverter(cache_type = "dual")
+myconverter = pybamm2julia.JuliaConverter(cache_type = "dual", override_psuedo=true, input_parameter_order=input_parameter_order)
 myconverter.convert_tree_to_intermediate(pybamm_pack.pack)
 pack_str = myconverter.build_julia_code()
 
@@ -104,8 +108,8 @@ cells = repeat(vcat(cell_rhs,cell_algebraic),pyconvert(Int, pybamm_pack.num_cell
 differential_vars = vcat(pack_eqs,cells)
 mass_matrix = sparse(diagm(differential_vars))
 func = ODEFunction(jl_func, mass_matrix=mass_matrix,jac_prototype=jac_sparsity)
-prob = ODEProblem(func, jl_vec, (0.0, 3600/timescale), nothing)
+prob = ODEProblem(func, jl_vec, (0.0, 3600/timescale), p)
 
 
 sol = solve(prob, QNDF(linsolve=KLUFactorization(),concrete_jac=true), saveat = collect(range(0,stop=3600/timescale, length=100)))
-=#
+

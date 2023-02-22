@@ -80,7 +80,7 @@ class Pack(object):
         self,
         model,
         circuit_graph,
-        thermal_graph = None,
+        thermals = None,
         parameter_values=None,
         functional=False,
         voltage_functional=False,
@@ -97,7 +97,9 @@ class Pack(object):
         # think about moving this to a separate function.
         self._operating_mode = operating_mode
         
-        self.thermal_graph = thermal_graph
+
+
+        self.thermal_graph = thermals.thermal_graph
         self.circuit_graph = circuit_graph
 
         self._input_parameter_order = input_parameter_order
@@ -403,6 +405,19 @@ class Pack(object):
             t = pybamm.Time()
             self.pack = pybamm2julia.PybammJuliaFunction(
                 [dsv, sv, p, t], self.pack, "pack", True
+            )
+        else:
+            len_sv = len(cells)*self.cell_size + len(pack_eqs_vec)
+            sv = pybamm.StateVector(slice(0, len_sv))
+            if self._input_parameter_order is None: 
+                p = [pybamm2julia.PsuedoInputParameter("dummy_param")]
+            else:
+                p = []
+                for param in self._input_parameter_order:
+                    p.append(pybamm.InputParameter(param))
+            t = pybamm.Time()
+            self.pack = pybamm2julia.PybammJuliaFunction(
+                [sv]+p+[t], self.pack, "pack", True
             )
         self.ics = self.initialize_pack(len(loop_currents),1)
 

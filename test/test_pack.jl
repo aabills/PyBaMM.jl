@@ -26,7 +26,7 @@ using PyBaMM
 
 
 
-  pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermal_graph=thermal_graph)
+  pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermals=thermals)
   pybamm_pack.build_pack()
 
 
@@ -37,7 +37,7 @@ using PyBaMM
   cell_str = pyconvert(String, cell_str)
   cell! = eval(Meta.parse(cell_str))
 
-  myconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic")
+  myconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", override_psuedo=true)
   myconverter.convert_tree_to_intermediate(pybamm_pack.pack)
   pack_str = myconverter.build_julia_code()
 
@@ -61,7 +61,7 @@ using PyBaMM
   cell_str = pyconvert(String, cell_str)
   cell! = eval(Meta.parse(cell_str))
 
-  myconverter = pybamm2julia.JuliaConverter(cache_type = "dual")
+  myconverter = pybamm2julia.JuliaConverter(cache_type = "dual", override_psuedo=true)
   myconverter.convert_tree_to_intermediate(pybamm_pack.pack)
   pack_str = myconverter.build_julia_code()
 
@@ -120,7 +120,7 @@ end
   thermal_graph = thermals.thermal_graph
 
 
-  pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermal_graph=thermal_graph, operating_mode = "CV")
+  pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermals=thermals, operating_mode = "CV")
   pybamm_pack.build_pack()
   timescale = pyconvert(Float64,pybamm_pack.timescale.evaluate())
   cellconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", inplace=true)
@@ -129,7 +129,7 @@ end
   cell_str = pyconvert(String, cell_str)
   cell! = eval(Meta.parse(cell_str))
 
-  myconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic")
+  myconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", override_psuedo=true)
   myconverter.convert_tree_to_intermediate(pybamm_pack.pack)
   pack_str = myconverter.build_julia_code()
 
@@ -153,7 +153,7 @@ end
   cell_str = pyconvert(String, cell_str)
   cell! = eval(Meta.parse(cell_str))
 
-  myconverter = pybamm2julia.JuliaConverter(cache_type = "dual")
+  myconverter = pybamm2julia.JuliaConverter(cache_type = "dual", override_psuedo=true)
   myconverter.convert_tree_to_intermediate(pybamm_pack.pack)
   pack_str = myconverter.build_julia_code()
 
