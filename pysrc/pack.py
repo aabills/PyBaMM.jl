@@ -97,9 +97,7 @@ class Pack(object):
         # think about moving this to a separate function.
         self._operating_mode = operating_mode
         
-
-
-        self.thermal_graph = thermals.thermal_graph
+        self.thermals = thermals
         self.circuit_graph = circuit_graph
 
         self._input_parameter_order = input_parameter_order
@@ -114,6 +112,7 @@ class Pack(object):
 
         if parameter_values is None:
             parameter_values = model.default_parameter_values
+        self._parameter_values = parameter_values
         
         self._distribution_params = {}
         if distribution_params is not None:
@@ -136,7 +135,7 @@ class Pack(object):
             initial_pack_current = parameter_values["Current function [A]"]
         if initial_pack_temperature is None:
             initial_pack_temperature = parameter_values["Ambient temperature [K]"]
-        if self.thermal_graph is not None:
+        if self.thermals is not None:
             initial_inputs = {
                 "cell_current" : initial_pack_current,
                 "ambient_temperature" : initial_pack_temperature
@@ -207,7 +206,7 @@ class Pack(object):
                     lsv.append(psuedo_parameter)
 
             if self._implicit:
-                if self.thermal_graph is not None:
+                if self.thermals is not None:
                     self.cell_model = pybamm2julia.PybammJuliaFunction(
                         [sv, cell_current, ambient_temperature, dsv] + lsv,
                         self.cell_model,
@@ -219,7 +218,7 @@ class Pack(object):
                         [sv, cell_current, dsv] + lsv, self.cell_model, "cell!", True
                     )
             else:
-                if self.thermal_graph is not None:
+                if self.thermals is not None:
                     self.cell_model = pybamm2julia.PybammJuliaFunction(
                         [sv, cell_current, ambient_temperature] + lsv,
                         self.cell_model,
@@ -282,26 +281,6 @@ class Pack(object):
         my_offsetter.add_offset_to_state_vectors(symbol)
         return symbol
 
-    def build_thermal_equations_with_graph(self):
-        for node in self.thermal_graph.nodes:
-            if node[0] == "V":
-                #node is a battery
-                expr = 0
-                for neighbor in self.thermal_graph.neighbors(node):
-                    if neighbor[0:5] == "T_AMB":
-                        expr += self.pack_ambient
-                    elif neighbor[0] == "V":
-                        expr += self.batteries[neighbor]["temperature"]
-                    else:
-                        raise NotImplementedError("only batteries and ambient temperature can be calculated right now.")
-                num_neighbors = len(self.thermal_graph[node])
-                expr = expr/num_neighbors
-                self.ambient_temperature.set_psuedo(self.batteries[node]["cell"], expr)
-            elif node[0:5] == "T_AMB":
-                continue
-            else:
-                raise NotImplementedError("only batteries and ambient temperature can be calculated right now.")
-
     def build_pack(self):
         # this function builds expression trees to compute the current.
 
@@ -350,7 +329,7 @@ class Pack(object):
                     "ics": pybamm.Vector(self.built_model.y0.full())
                 }
                 #NOTE: This may change in the future
-                if self.thermal_graph is not None:
+                if self.thermals is not None:
                     node1_x = row["node1_x"]
                     node2_x = row["node2_x"]
                     node1_y = row["node1_y"]
@@ -378,8 +357,8 @@ class Pack(object):
                 self.batteries[desc].update({"distribution parameters" : params})
                 self.offset += self.cell_size
 
-        if self.thermal_graph is not None:
-            self.build_thermal_equations_with_graph()
+        if self.thermals is not None:
+            self.thermals.build_thermal_equations_with_graph(self)
 
 
         self.num_cells = len(self.batteries)

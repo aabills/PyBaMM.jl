@@ -8,7 +8,7 @@ setup_thermal_graph = PyBaMM.setup_thermal_graph
 
 Np = 3
 Ns = 3
-curr = 1.8
+curr = 3
 t = 0.0
 functional = true
 voltage_functional = true
@@ -21,14 +21,14 @@ circuit_graph = setup_circuit.process_netlist_from_liionpack(netlist)
 thermals = setup_thermal_graph.LegacyThermalGraph(circuit_graph)
 thermal_graph = thermals.thermal_graph
 
-thermal_pipe = setup_thermal_graph.RibbonCoolingGraph(circuit_graph)
+thermal_pipe = setup_thermal_graph.RibbonCoolingGraph(circuit_graph, mdot=nothing, cp=nothing, T_i=nothing)
 thermal_pipe_graph = thermal_pipe.thermal_graph
 
-input_parameter_order = ["mdot"]
-p = [1.0]
+input_parameter_order = ["T_i","mdot","cp"]
+p = [300.0,1.0,1.0]
 
 
-pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermals=thermals, voltage_functional=voltage_functional, input_parameter_order=input_parameter_order)
+pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermals=thermal_pipe, voltage_functional=voltage_functional, input_parameter_order=input_parameter_order)
 pybamm_pack.build_pack()
 
 

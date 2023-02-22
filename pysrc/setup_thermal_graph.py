@@ -105,10 +105,26 @@ class LegacyThermalGraph(object):
                     self.thermal_graph.add_edge(desc, desc)
                 else:
                     raise NotImplementedError("BC's must be ambient or symmetry")
-
-    def modify_variables(self, parameter_values, pack_params):
-        if self.heat_transfer_coefficient is None:
-            return parameter_values
+    
+    def build_thermal_equations_with_graph(self, pack):
+        for node in pack.thermals.thermal_graph.nodes:
+            if node[0] == "V":
+                #node is a battery
+                expr = 0
+                for neighbor in pack.thermals.thermal_graph.neighbors(node):
+                    if neighbor[0:5] == "T_AMB":
+                        expr += pack.pack_ambient
+                    elif neighbor[0] == "V":
+                        expr += pack.batteries[neighbor]["temperature"]
+                    else:
+                        raise NotImplementedError("only batteries and ambient temperature can be calculated right now.")
+                num_neighbors = len(pack.thermals.thermal_graph[node])
+                expr = expr/num_neighbors
+                pack.ambient_temperature.set_psuedo(pack.batteries[node]["cell"], expr)
+            elif node[0:5] == "T_AMB":
+                continue
+            else:
+                raise NotImplementedError("only batteries and ambient temperature can be calculated right now.")
 
 
 class RibbonCoolingGraph(object):
@@ -116,7 +132,8 @@ class RibbonCoolingGraph(object):
         self,
         circuit_graph,
         mdot=None,
-        cp=None
+        cp=None,
+        T_i = 293,
     ):
         xs = []
         ys = []
@@ -155,6 +172,10 @@ class RibbonCoolingGraph(object):
         xs = xs
         self.xs = xs
         self.ys = ys  
+
+        self.T_i = T_i
+        self.mdot = mdot
+        self.cp = cp
 
         self.add_thermal_nodes()
         self.add_thermal_edges()
@@ -197,12 +218,12 @@ class RibbonCoolingGraph(object):
                         if is_horz:
                             self.thermal_graph.add_edge(node_name, other_name)
                     #if both are batteries
-                    elif node["type"] == "battery" and other_node["type"] == "battery":
-                        #connect if they are vertically connected
-                        is_vert = abs(y_diff) == 3 and other_x == node_x
-                        if is_vert:
-                            self.thermal_graph.add_edge(node_name, other_name)
-                    #if both are pipes
+                    #elif node["type"] == "battery" and other_node["type"] == "battery":
+                    #    #connect if they are vertically connected
+                    #    is_vert = abs(y_diff) == 3 and other_x == node_x
+                    #    if is_vert:
+                    #        self.thermal_graph.add_edge(node_name, other_name)
+                    ##if both are pipes
                     elif node["type"] == "pipe" and other_node["type"] == "pipe":
                         node_p = node["p"]
                         other_p = other_node["p"]
@@ -220,3 +241,55 @@ class RibbonCoolingGraph(object):
                         same_pipe = node_p == other_p
                         if same_pipe and is_node_0:
                             self.thermal_graph.add_edge(node_name, other_name)
+    
+    def build_thermal_equations_with_graph(self, pack):
+        #begin by making sure the proper inputs are in place.
+        if self.mdot is None:
+            self.mdot = pybamm.InputParameter("mdot")
+            if "mdot" not in pack._input_parameter_order:
+                raise AssertionError("please supply the pack with a mass flow rate")
+        if (self.cp is None):
+            self.cp = pybamm.InputParameter("cp")
+            if  "cp" not in pack._input_parameter_order:
+                raise AssertionError("please supply the pack with a cp for the cooling fluid")
+        if (self.T_i is None):
+            self.T_i = pybamm.InputParameter("T_i")
+            if  "T_i" not in pack._input_parameter_order:
+                raise AssertionError("please supply the pack with a T_i for the cooling fluid")
+
+        #Now build the ambient temperatures of the pipe nodes
+        for p in range(self.num_pipes):
+            inlet_temp = self.T_i
+            for n in range(self.nodes_per_pipe):
+                name = "P_" + str(p) + "_" + str(n)
+                if n == 0:
+                    T_in = inlet_temp
+                else:
+                    previous_node_name = "P_" + str(p) + "_" + str(n-1)
+                    T_in = pack.thermals.thermal_graph.nodes[previous_node_name]["outlet temperature"]
+                T_s = 0
+                num_batts = 0
+                for neighbor in pack.thermals.thermal_graph.neighbors(name):
+                    neighbor_node = pack.thermals.thermal_graph.nodes[neighbor]
+                    if neighbor_node["type"] == "battery":
+                        T_s += pack.batteries[neighbor]["temperature"]
+                        num_batts += 1
+                    if num_batts == 0:
+                        raise AssertionError("nodes must have a battery connected")
+                T_s = T_s/num_batts
+                h = pack._parameter_values["Total heat transfer coefficient [W.m-2.K-1]"]
+                A = pack._parameter_values["Cell cooling surface area [m2]"]
+                T_out = T_in + (h*A*(T_s - T_in)/(self.mdot*self.cp))
+                pack.thermals.thermal_graph.nodes[name]["outlet temperature"] = T_out
+                pack.thermals.thermal_graph.nodes[name]["inlet temperature"] = T_in
+        
+        #Now go through the batteries and set psuedo ambient temperatures
+        for batt in pack.batteries:
+            #Find neighbors (there be 2)
+            T_amb = 0
+            num_neighbors = 0
+            for neighbor in pack.thermals.thermal_graph.neighbors(batt):
+                T_amb += pack.thermals.thermal_graph.nodes[neighbor]["inlet temperature"]
+                num_neighbors += 1
+            ambient_temperature = T_amb/num_neighbors
+            pack.ambient_temperature.set_psuedo(pack.batteries[batt]["cell"], ambient_temperature)
