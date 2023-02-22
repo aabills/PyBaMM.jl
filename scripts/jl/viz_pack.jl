@@ -18,7 +18,6 @@ for edge in pybamm_pack.circuit_graph.edges
         resistor_edges.append(edge)
     end
 end
-
 thermal_pos = pydict()
 
 
@@ -67,9 +66,9 @@ battery_nodelist = pylist([node for node in pybamm_pack.thermal_graph.nodes])
 battery_nodelist.remove(pystr("T_AMB_L"))
 battery_nodelist.remove(pystr("T_AMB_R"))
 battery_nodelist.remove(pystr("T_AMB_B"))
-#nodelist.remove(pystr("T_AMB_T"))
+battery_nodelist.remove(pystr("T_AMB_T"))
 
-ambient_nodelist = pylist(["T_AMB_L","T_AMB_R","T_AMB_B"])
+ambient_nodelist = pylist(["T_AMB_L","T_AMB_R","T_AMB_B","T_AMB_T"])
 
 
 
@@ -84,5 +83,17 @@ nx.draw_networkx_nodes(H, pos=thermal_pos, node_color="tab:green",nodelist=batte
 nx.draw_networkx_nodes(H, pos=thermal_pos, node_color="tab:blue",nodelist=ambient_nodelist,label="Ambient")
 
 nx.draw_networkx_edges(H, pos=thermal_pos,width=5, edge_color="tab:red", alpha=0.4,label="Thermal Connection")
-plt.legend()
-plt.show()
+plt.legend(loc="center right", bbox_to_anchor=(0, 0.5))
+
+
+pipe_pos = pydict()
+for node in thermal_pipe_graph.nodes()
+    loc = thermal_pipe_graph.nodes[node]["loc"]
+    pipe_pos.update(pydict(Dict(node => loc)))
+end
+
+
+nx.draw_networkx(thermal_pipe_graph, pos=pipe_pos,width=5, edge_color="tab:red", alpha=0.4)
+
+
+

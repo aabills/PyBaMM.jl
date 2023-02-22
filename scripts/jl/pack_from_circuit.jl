@@ -6,23 +6,40 @@ pybamm2julia = PyBaMM.pybamm2julia
 setup_circuit = PyBaMM.setup_circuit
 setup_thermal_graph = PyBaMM.setup_thermal_graph
 
-Np = 3
-Ns = 3
+Np = 10
+Ns = 10
 curr = 1.8
 p = nothing 
 t = 0.0
 functional = true
+voltage_functional = true
+
 options = pydict(Dict("thermal" => "lumped"))
-model = pybamm.lithium_ion.DFN(name="DFN", options=options)
+model = pybamm.lithium_ion.SPM(name="DFN", options=options)
 
 netlist = setup_circuit.setup_circuit(Np, Ns, I=curr)  
 circuit_graph = setup_circuit.process_netlist_from_liionpack(netlist) 
 thermals = setup_thermal_graph.LegacyThermalGraph(circuit_graph)
 thermal_graph = thermals.thermal_graph
 
+thermal_pipe = setup_thermal_graph.RibbonCoolingGraph(circuit_graph)
+thermal_pipe_graph = thermal_pipe.thermal_graph
 
-pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermal_graph=thermal_graph)
+
+pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermal_graph=thermals, voltage_functional=voltage_functional)
 pybamm_pack.build_pack()
+
+#=
+
+if voltage_functional
+    voltageconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", inplace=true)
+    voltageconverter.convert_tree_to_intermediate(pybamm_pack.voltage_func)
+    voltage_str = voltageconverter.build_julia_code()
+    voltage_str = pyconvert(String, voltage_str)
+    voltage_func = eval(Meta.parse(voltage_str))
+else
+    voltage_str = ""
+end
 
 
 timescale = pyconvert(Float64,pybamm_pack.timescale.evaluate())
@@ -49,6 +66,16 @@ jl_func = eval(Meta.parse(pack_str))
 dy = similar(jl_vec)
 
 jac_sparsity = float(Symbolics.jacobian_sparsity((du,u)->jl_func(du,u,p,t),dy,jl_vec))
+
+if voltage_functional
+    voltageconverter = pybamm2julia.JuliaConverter(cache_type = "dual", inplace=true)
+    voltageconverter.convert_tree_to_intermediate(pybamm_pack.voltage_func)
+    voltage_str = voltageconverter.build_julia_code()
+    voltage_str = pyconvert(String, voltage_str)
+    voltage_func = eval(Meta.parse(voltage_str))
+else
+    voltage_str = ""
+end
 
 cellconverter = pybamm2julia.JuliaConverter(cache_type = "dual", inplace=true)
 cellconverter.convert_tree_to_intermediate(pybamm_pack.cell_model)
@@ -81,4 +108,4 @@ prob = ODEProblem(func, jl_vec, (0.0, 3600/timescale), nothing)
 
 
 sol = solve(prob, QNDF(linsolve=KLUFactorization(),concrete_jac=true), saveat = collect(range(0,stop=3600/timescale, length=100)))
-
+=#

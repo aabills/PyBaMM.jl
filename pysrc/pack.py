@@ -165,6 +165,7 @@ class Pack(object):
             sim.build(initial_soc = initial_soc)
         self.len_cell_rhs = sim.built_model.len_rhs
 
+        #set up initial conditions for cell model
         get_consistent_ics_solver = pybamm.CasadiSolver()
         get_consistent_ics_solver.set_up(sim.built_model, inputs=initial_inputs)
         get_consistent_ics_solver._set_initial_conditions(sim.built_model,0.0,initial_inputs,False)
