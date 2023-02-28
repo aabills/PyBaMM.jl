@@ -1,6 +1,7 @@
 import networkx as nx
 from collections import OrderedDict
 import pybamm
+import copy
 
 
 class LegacyThermalGraph(object):
@@ -279,7 +280,8 @@ class RibbonCoolingGraph(object):
                 T_s = T_s/num_batts
                 h = pack._parameter_values["Total heat transfer coefficient [W.m-2.K-1]"]
                 A = pack._parameter_values["Cell cooling surface area [m2]"]
-                T_out = T_in + (h*A*(T_s - T_in)/(self.mdot*self.cp))
+                #Using the mean temperature for heat transfer:
+                T_out = ((2*A*h*T_s) - (A*h*T_in) + (2*self.cp*self.mdot*T_in))/((A*h) + (2*self.cp*self.mdot))
                 pack.thermals.thermal_graph.nodes[name]["outlet temperature"] = T_out
                 pack.thermals.thermal_graph.nodes[name]["inlet temperature"] = T_in
         
@@ -289,7 +291,8 @@ class RibbonCoolingGraph(object):
             T_amb = 0
             num_neighbors = 0
             for neighbor in pack.thermals.thermal_graph.neighbors(batt):
-                T_amb += pack.thermals.thermal_graph.nodes[neighbor]["inlet temperature"]
+                T_amb += ((pack.thermals.thermal_graph.nodes[neighbor]["inlet temperature"] + pack.thermals.thermal_graph.nodes[neighbor]["outlet temperature"])/2)
                 num_neighbors += 1
+
             ambient_temperature = T_amb/num_neighbors
             pack.ambient_temperature.set_psuedo(pack.batteries[batt]["cell"], ambient_temperature)
