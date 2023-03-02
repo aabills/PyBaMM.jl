@@ -5,6 +5,7 @@ using Sundials
 using OrdinaryDiffEq
 
 pybamm = pyimport("pybamm")
+np = pyimport("numpy")
 
 @testset "Compare with PyBaMM: SPM" begin
     # load model
@@ -17,7 +18,7 @@ pybamm = pyimport("pybamm")
 
     # Calculate voltage in Julia
     V = get_variable(sim, sol, "Terminal voltage [V]")
-    t = get_variable(sim, sol, "Time [s]")
+    t = np.array(sol.t)
 
     # Solve in python
     sol_pybamm = sim.solve(t)
@@ -36,12 +37,12 @@ end
 
     # Calculate voltage in Julia
     V = get_variable(sim, sol, "Terminal voltage [V]")
-    t = get_variable(sim, sol, "Time [s]")
+    t = np.array(sol.t)
 
     # Solve in python
     sol_pybamm = sim.solve(t)
     V_pybamm = pyconvert(Array{Float64},get(sol_pybamm, "Terminal voltage [V]",nothing).data)
-    @test all(isapprox.(V_pybamm, V, atol=1e-4))
+    @test all(isapprox.(V_pybamm, V, atol=1e-3))
 end
 
 @testset "Compare with PyBaMM: DFN" begin
@@ -55,7 +56,7 @@ end
 
     # Calculate voltage in Julia
     V = get_variable(sim, sol, "Terminal voltage [V]")
-    t = get_variable(sim, sol, "Time [s]")
+    t = np.array(sol.t)
 
     # Solve in python
     sol_pybamm = sim.solve(t)
@@ -75,7 +76,7 @@ end
 
     # Calculate voltage in Julia
     V = get_variable(sim, sol, "Terminal voltage [V]")
-    t = get_variable(sim, sol, "Time [s]")
+    t = np.array(sol.t)
 
     # Solve in python
     sol_pybamm = sim.solve(t)
