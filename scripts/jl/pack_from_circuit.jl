@@ -6,9 +6,9 @@ pybamm2julia = PyBaMM.pybamm2julia
 setup_circuit = PyBaMM.setup_circuit
 setup_thermal_graph = PyBaMM.setup_thermal_graph
 
-Np = 3
-Ns = 3
-curr = 3
+Np = 6
+Ns = 6
+curr = 1.8
 t = 0.0
 functional = true
 voltage_functional = true
@@ -18,10 +18,8 @@ model = pybamm.lithium_ion.DFN(name="DFN", options=options)
 
 netlist = setup_circuit.setup_circuit(Np, Ns, I=curr)  
 circuit_graph = setup_circuit.process_netlist_from_liionpack(netlist) 
-thermals = setup_thermal_graph.LegacyThermalGraph(circuit_graph)
-thermal_graph = thermals.thermal_graph
 
-thermal_pipe = setup_thermal_graph.RibbonCoolingGraph(circuit_graph, mdot=nothing, cp=nothing, T_i=nothing)
+thermal_pipe = setup_thermal_graph.BandolierCoolingGraph(circuit_graph, mdot=nothing, cp=nothing, T_i=nothing)
 thermal_pipe_graph = thermal_pipe.thermal_graph
 
 input_parameter_order = ["T_i","mdot","cp"]
@@ -31,8 +29,7 @@ p = [300.0,1.0,1.0]
 pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermals=thermal_pipe, voltage_functional=voltage_functional, input_parameter_order=input_parameter_order)
 pybamm_pack.build_pack()
 
-
-
+#=
 if voltage_functional
     voltageconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", inplace=true)
     voltageconverter.convert_tree_to_intermediate(pybamm_pack.voltage_func)
@@ -113,3 +110,4 @@ prob = ODEProblem(func, jl_vec, (0.0, 3600/timescale), p)
 
 sol = solve(prob, QNDF(linsolve=KLUFactorization(),concrete_jac=true), saveat = collect(range(0,stop=3600/timescale, length=100)))
 
+=#

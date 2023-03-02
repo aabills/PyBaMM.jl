@@ -296,3 +296,173 @@ class RibbonCoolingGraph(object):
 
             ambient_temperature = T_amb/num_neighbors
             pack.ambient_temperature.set_psuedo(pack.batteries[batt]["cell"], ambient_temperature)
+
+
+class BandolierCoolingGraph(object):
+    def __init__(
+        self,
+        circuit_graph,
+        mdot=None,
+        cp=None,
+        T_i = 293,
+    ):
+        xs = []
+        ys = []
+        self.thermal_graph = nx.Graph()
+        self.batteries = OrderedDict()
+        for edge in circuit_graph.edges:
+            row = circuit_graph.edges[edge]
+            desc = row["desc"]
+            # I'd like a better way to do this.
+            if desc[0] == "V":
+                node1_x = row["node1_x"]
+                node2_x = row["node2_x"]
+                node1_y = row["node1_y"]
+                node2_y = row["node2_y"]
+                #All batteries are vertical so only need to check node1 for x.
+                #However we want all possible ys (the first one will be the inlet (constant T))
+                batt_y = min(node1_y, node2_y) + 0.5
+                if node1_x not in xs:
+                    xs.append(node1_x)
+                if batt_y not in ys:
+                    ys.append(batt_y)
+                if node1_x != node2_x:
+                    raise AssertionError("x's must be the same")
+                if abs(node1_y - node2_y) != 1:
+                    raise AssertionError("batteries can only take up one y")
+                self.batteries[desc] = {
+                    "x": node1_x,
+                    "y": batt_y
+                }
+        #Number of pipes is the number of potential x's minus 1
+        self.num_pipes = 1
+        xs.sort()
+        ys.sort()
+        #x = -1 is the 
+        xs = xs
+        self.xs = xs
+        self.ys = ys  
+
+        self.T_i = T_i
+        self.mdot = mdot
+        self.cp = cp
+
+        self.add_thermal_nodes()
+        self.add_thermal_edges()
+
+    def add_thermal_nodes(self):
+        #start by adding batteries
+        for batt in self.batteries:
+            batt_loc = (self.batteries[batt]["x"], self.batteries[batt]["y"])
+            self.thermal_graph.add_node(batt, loc=batt_loc, type="battery")
+        self.thermal_graph.add_nodes_from(self.batteries)
+        
+        # Now add pipes.
+        # (p is pipe number, x is x location of pipe)
+        # Direction will be used to swap the direction of the bandolero.
+        # True = top to bottom, False = Bottom to Top
+        direction = False
+        min_y = min(self.ys)
+        min_x = min(self.xs)
+        n = 0
+        for x in self.xs[0::2]:
+            # (n is node number, y is y location of pipe)
+            ys = copy.deepcopy(self.ys)
+            ys.sort(reverse=direction)
+            for y in ys:
+                node_name = "P_" + str(n)
+                node_loc = (x + 0.5, y)
+                self.thermal_graph.add_node(node_name, loc=node_loc, n=n, type="pipe")
+                n += 1
+            #change directions at the end of each column
+            direction = not direction
+        #Add inlet
+        node_name = "INLET"
+        loc = (min_x + 0.5, min_y - 3)
+        self.thermal_graph.add_node(node_name, loc=loc, type="inlet")
+        self.nodes_per_pipe = n   
+        
+    def add_thermal_edges(self):
+        #could be faster for sure, but not worrying about it for now (it's not even close to the limiting factor.)
+        for node_name in self.thermal_graph.nodes:
+            node = self.thermal_graph.nodes[node_name]
+            node_x,node_y = node["loc"]
+            for other_name in self.thermal_graph.nodes:
+                other_node = self.thermal_graph.nodes[other_name]
+                #no self edges for pipes
+                if other_name != node_name:
+                    other_x,other_y = other_node["loc"]
+                    y_diff = other_y - node_y
+                    x_diff = other_x - node_x
+                    #if node is a battery and other node is a pipe
+                    if node["type"] == "battery" and other_node["type"] == "pipe":
+                        is_horz = (abs(x_diff) == 0.5) and (y_diff == 0)
+                        if is_horz:
+                            self.thermal_graph.add_edge(node_name, other_name)
+                    elif node["type"] == "pipe" and other_node["type"] == "pipe":
+                        node_n = node["n"]
+                        other_node_n = other_node["n"]
+                        prox = (node_n - other_node_n) == 1
+                        #connect if they are next to each other
+                        if prox:
+                            self.thermal_graph.add_edge(node_name, other_name)
+                    elif node["type"] == "inlet" and other_node["type"] == "pipe":
+                        is_node_0 = other_node["n"] == 0
+                        if is_node_0:
+                            self.thermal_graph.add_edge(node_name, other_name)
+    
+    def build_thermal_equations_with_graph(self, pack):
+        #begin by making sure the proper inputs are in place.
+        if self.mdot is None:
+            self.mdot = pybamm.InputParameter("mdot")
+            if "mdot" not in pack._input_parameter_order:
+                raise AssertionError("please supply the pack with a mass flow rate")
+        if (self.cp is None):
+            self.cp = pybamm.InputParameter("cp")
+            if  "cp" not in pack._input_parameter_order:
+                raise AssertionError("please supply the pack with a cp for the cooling fluid")
+        if (self.T_i is None):
+            self.T_i = pybamm.InputParameter("T_i")
+            if  "T_i" not in pack._input_parameter_order:
+                raise AssertionError("please supply the pack with a T_i for the cooling fluid")
+
+        #Now build the ambient temperatures of the pipe nodes
+        for p in range(self.num_pipes):
+            inlet_temp = self.T_i
+            for n in range(self.nodes_per_pipe):
+                name = "P_" + str(n)
+                if n == 0:
+                    T_in = inlet_temp
+                else:
+                    previous_node_name = "P_" + str(n-1)
+                    T_in = pack.thermals.thermal_graph.nodes[previous_node_name]["outlet temperature"]
+                T_s = 0
+                num_batts = 0
+                for neighbor in pack.thermals.thermal_graph.neighbors(name):
+                    neighbor_node = pack.thermals.thermal_graph.nodes[neighbor]
+                    if neighbor_node["type"] == "battery":
+                        T_s += pack.batteries[neighbor]["temperature"]
+                        num_batts += 1
+                    if num_batts == 0:
+                        raise AssertionError("nodes must have a battery connected")
+                T_s = T_s/num_batts
+                h = pack._parameter_values["Total heat transfer coefficient [W.m-2.K-1]"]
+                A = pack._parameter_values["Cell cooling surface area [m2]"]
+                #Using the mean temperature for heat transfer:
+                T_out = ((2*A*h*T_s) - (A*h*T_in) + (2*self.cp*self.mdot*T_in))/((A*h) + (2*self.cp*self.mdot))
+                pack.thermals.thermal_graph.nodes[name]["outlet temperature"] = T_out
+                pack.thermals.thermal_graph.nodes[name]["inlet temperature"] = T_in
+        
+        #Now go through the batteries and set psuedo ambient temperatures
+        for batt in pack.batteries:
+            print(batt)
+            #Find neighbors (there be 2)
+            T_amb = 0
+            num_neighbors = 0
+            for neighbor in pack.thermals.thermal_graph.neighbors(batt):
+                T_amb += ((pack.thermals.thermal_graph.nodes[neighbor]["inlet temperature"] + pack.thermals.thermal_graph.nodes[neighbor]["outlet temperature"])/2)
+                num_neighbors += 1
+
+            ambient_temperature = T_amb/num_neighbors
+            pack.ambient_temperature.set_psuedo(pack.batteries[batt]["cell"], ambient_temperature)
+
