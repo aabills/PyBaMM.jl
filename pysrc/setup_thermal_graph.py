@@ -305,7 +305,15 @@ class BandolierCoolingGraph(object):
         mdot=None,
         cp=None,
         T_i = 293,
+        transient = False,
+        rho = None,
+        A = None,
+        deltax = None
     ):
+        self.transient = transient
+        self.rho = rho
+        self.A = A
+        self.deltax = deltax
         xs = []
         ys = []
         self.thermal_graph = nx.Graph()
@@ -425,7 +433,69 @@ class BandolierCoolingGraph(object):
             self.T_i = pybamm.InputParameter("T_i")
             if  "T_i" not in pack._input_parameter_order:
                 raise AssertionError("please supply the pack with a T_i for the cooling fluid")
+        
+        if self.transient:
+            eqs = self.build_thermal_equations_with_graph_transient(pack)
+        else:
+            eqs = self.build_thermal_equations_with_graph_ss(pack)
+        return eqs
+    
+    def build_thermal_equations_with_graph_transient(self, pack):
+        if (self.rho is None):
+            self.rho = pybamm.InputParameter("rho_cooling")
+            if  "rho_cooling" not in pack._input_parameter_order:
+                raise AssertionError("please supply the pack with a rho_cooling for the cooling fluid")
 
+        if (self.A is None):
+            self.A = pybamm.InputParameter("A_cooling")
+            if  "A_cooling" not in pack._input_parameter_order:
+                raise AssertionError("please supply the pack with an A for the cooling fluid")        
+
+        if (self.deltax is None):
+            self.deltax = pybamm.InputParameter("deltax")
+            if  "deltax" not in pack._input_parameter_order:
+                raise AssertionError("please supply the pack with a deltax for the cooling fluid")      
+        
+        eqs = []
+        for p in range(self.num_pipes):
+            inlet_temp = self.T_i
+            for n in range(self.nodes_per_pipe):
+                name = "P_" + str(n)
+                temperature = pybamm.StateVector(slice(pack.offset, pack.offset + 1), name=name)
+                pack.thermals.thermal_graph.nodes[name]["temperature"] = temperature
+                if n == 0:
+                    T_in = inlet_temp
+                else:
+                    previous_node_name = "P_" + str(n-1)
+                    T_in = pack.thermals.thermal_graph.nodes[previous_node_name]["temperature"]
+                Q_in = T_in * self.mdot * self.cp
+                Q_out = temperature * self.mdot * self.cp
+                for neighbor in pack.thermals.thermal_graph.neighbors(name):
+                    neighbor_node = pack.thermals.thermal_graph.nodes[neighbor]
+                    if neighbor_node["type"] == "battery":
+                        h = pack._parameter_values["Total heat transfer coefficient [W.m-2.K-1]"]
+                        A = pack._parameter_values["Cell cooling surface area [m2]"]
+                        Q_in += (h*A*(pack.batteries[neighbor]["temperature"] - temperature))
+                rhs = (Q_in - Q_out) / (self.cp * self.rho * self.deltax * self.A)
+                eqs.append(rhs)
+                pack.offset += 1
+        
+                
+        for batt in pack.batteries:
+            #Find neighbors (there should be 1)
+            num_neighbors = 0
+            T_amb = 0
+            for neighbor in pack.thermals.thermal_graph.neighbors(batt):
+                T_amb += pack.thermals.thermal_graph.nodes[neighbor]["temperature"]
+                num_neighbors += 1
+            if num_neighbors > 1:
+                raise AssertionError("uh oh")
+            ambient_temperature = T_amb/num_neighbors
+            pack.ambient_temperature.set_psuedo(pack.batteries[batt]["cell"], ambient_temperature)
+            
+        return eqs                          
+                            
+    def build_thermal_equations_with_graph_ss(self, pack):
         #Now build the ambient temperatures of the pipe nodes
         for p in range(self.num_pipes):
             inlet_temp = self.T_i

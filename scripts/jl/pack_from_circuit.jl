@@ -19,11 +19,11 @@ model = pybamm.lithium_ion.DFN(name="DFN", options=options)
 netlist = setup_circuit.setup_circuit(Np, Ns, I=curr)  
 circuit_graph = setup_circuit.process_netlist_from_liionpack(netlist) 
 
-thermal_pipe = setup_thermal_graph.BandolierCoolingGraph(circuit_graph, mdot=nothing, cp=nothing, T_i=nothing)
+thermal_pipe = setup_thermal_graph.BandolierCoolingGraph(circuit_graph, mdot=nothing, cp=nothing, T_i=nothing, transient=true)
 thermal_pipe_graph = thermal_pipe.thermal_graph
 
-input_parameter_order = ["T_i","mdot","cp"]
-p = [300.0,1.0,1.0]
+input_parameter_order = ["T_i","mdot","cp", "rho_cooling", "A_cooling", "deltax"]
+p = [300.0,10000000000.0,100.0, 1e2, 1.0, 1.0]
 
 
 pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermals=thermal_pipe, voltage_functional=voltage_functional, input_parameter_order=input_parameter_order)
@@ -102,7 +102,8 @@ pack_eqs = falses(pyconvert(Int,pybamm_pack.len_pack_eqs))
 cell_rhs = trues(pyconvert(Int,pybamm_pack.len_cell_rhs))
 cell_algebraic = falses(pyconvert(Int,pybamm_pack.len_cell_algebraic))
 cells = repeat(vcat(cell_rhs,cell_algebraic),pyconvert(Int, pybamm_pack.num_cells))
-differential_vars = vcat(pack_eqs,cells)
+thermals = trues(pyconvert(Int,pybamm_pack.len_thermal_eqs))
+differential_vars = vcat(pack_eqs,cells, thermals)
 mass_matrix = sparse(diagm(differential_vars))
 func = ODEFunction(jl_func, mass_matrix=mass_matrix, jac_prototype=jac_sparsity)
 prob = ODEProblem(func, jl_vec, (0.0, 3600/timescale), p)
