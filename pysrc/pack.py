@@ -358,7 +358,12 @@ class Pack(object):
                 self.offset += self.cell_size
 
         if self.thermals is not None:
-            self.thermals.build_thermal_equations_with_graph(self)
+            thermal_equations_vec = self.thermals.build_thermal_equations_with_graph(self)
+            if thermal_equations_vec is not None:
+                thermal_eqs = pybamm.numpy_concatenation(*thermal_equations_vec)
+                self.len_thermal_eqs = len(thermal_equations_vec)
+            else:
+                self.len_thermal_eqs = 0
 
 
         self.num_cells = len(self.batteries)
@@ -374,10 +379,12 @@ class Pack(object):
 
         cells = [d["cell"] for d in self.batteries.values()]
         cell_eqs = pybamm.numpy_concatenation(*cells)
-        
-        self.pack = pybamm.numpy_concatenation(pack_eqs, cell_eqs)
+        if self.len_thermal_eqs == 0:
+            self.pack = pybamm.numpy_concatenation(pack_eqs, cell_eqs)
+        else:
+            self.pack = pybamm.numpy_concatenation(pack_eqs, cell_eqs, thermal_eqs)
         if self._implicit:
-            len_sv = len(cells)*self.cell_size + len(pack_eqs_vec)
+            len_sv = len(cells)*self.cell_size + len(pack_eqs_vec) + self.len_thermal_eqs
             sv = pybamm.StateVector(slice(0,len_sv))
             dsv = pybamm.StateVectorDot(slice(0,len_sv))
             p = pybamm2julia.PsuedoInputParameter("lolol")
@@ -386,7 +393,7 @@ class Pack(object):
                 [dsv, sv, p, t], self.pack, "pack", True
             )
         else:
-            len_sv = len(cells)*self.cell_size + len(pack_eqs_vec)
+            len_sv = len(cells)*self.cell_size + len(pack_eqs_vec) + self.len_thermal_eqs
             sv = pybamm.StateVector(slice(0, len_sv))
             if self._input_parameter_order is None: 
                 p = [pybamm2julia.PsuedoInputParameter("dummy_param")]
@@ -398,9 +405,9 @@ class Pack(object):
             self.pack = pybamm2julia.PybammJuliaFunction(
                 [sv]+p+[t], self.pack, "pack", True
             )
-        self.ics = self.initialize_pack(len(loop_currents),1)
+        self.ics = self.initialize_pack(len(loop_currents),1, self.len_thermal_eqs)
 
-    def initialize_pack(self, num_loops, num_curr_sources):
+    def initialize_pack(self, num_loops, num_curr_sources, len_thermal_eqs):
         inputs = []
         if self._input_parameter_order is not None:
             inputs.append(pybamm.InputParameter("test"))
@@ -415,8 +422,13 @@ class Pack(object):
                 for desc in self.batteries
             ]
         )
-        ics_function = pybamm.numpy_concatenation(*[curr_ics, curr_source_v_ics, cell_ics])
-        ics_jl = pybamm2julia.PybammJuliaFunction(inputs,ics_function,"u0!",inplace=False)
+        if len_thermal_eqs == 0:
+            ics_function = pybamm.numpy_concatenation(*[curr_ics, curr_source_v_ics, cell_ics])
+            ics_jl = pybamm2julia.PybammJuliaFunction(inputs,ics_function,"u0!",inplace=False)
+        else:
+            thermal_ics = pybamm.numpy_concatenation(*[self.thermals.T_i for r in range(len_thermal_eqs)])
+            ics_function = pybamm.numpy_concatenation(*[curr_ics, curr_source_v_ics, cell_ics, thermal_ics])
+            ics_jl = pybamm2julia.PybammJuliaFunction(inputs,ics_function,"u0!",inplace=False)
         return ics_jl
 
     def build_pack_equations(self, loop_currents, curr_sources):
