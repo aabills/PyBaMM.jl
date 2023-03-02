@@ -82,7 +82,7 @@ function _problem_setup(sim, tend, inputs;dae_type="implicit",preallocate=true,c
     end
 
     # Scale the time
-    tau = pyconvert(Float64,sim.built_model.timescale.evaluate())
+    tau = 1
     tspan = (0, tend/tau)
     
 

@@ -6,8 +6,8 @@ pybamm2julia = PyBaMM.pybamm2julia
 setup_circuit = PyBaMM.setup_circuit
 setup_thermal_graph = PyBaMM.setup_thermal_graph
 
-Np = 6
-Ns = 6
+Np = 3
+Ns = 3
 curr = 1.8
 t = 0.0
 functional = true
@@ -29,7 +29,7 @@ p = [300.0,1.0,1.0]
 pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermals=thermal_pipe, voltage_functional=voltage_functional, input_parameter_order=input_parameter_order)
 pybamm_pack.build_pack()
 
-#=
+
 if voltage_functional
     voltageconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", inplace=true)
     voltageconverter.convert_tree_to_intermediate(pybamm_pack.voltage_func)
@@ -41,7 +41,7 @@ else
 end
 
 
-timescale = pyconvert(Float64,pybamm_pack.timescale.evaluate())
+timescale = 1
 cellconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", inplace=true)
 cellconverter.convert_tree_to_intermediate(pybamm_pack.cell_model)
 cell_str = cellconverter.build_julia_code()
@@ -104,10 +104,22 @@ cell_algebraic = falses(pyconvert(Int,pybamm_pack.len_cell_algebraic))
 cells = repeat(vcat(cell_rhs,cell_algebraic),pyconvert(Int, pybamm_pack.num_cells))
 differential_vars = vcat(pack_eqs,cells)
 mass_matrix = sparse(diagm(differential_vars))
-func = ODEFunction(jl_func, mass_matrix=mass_matrix,jac_prototype=jac_sparsity)
+func = ODEFunction(jl_func, mass_matrix=mass_matrix, jac_prototype=jac_sparsity)
 prob = ODEProblem(func, jl_vec, (0.0, 3600/timescale), p)
 
+using IncompleteLU
+function incompletelu(W,du,u,p,t,newW,Plprev,Prprev,solverdata)
+  if newW === nothing || newW
+    Pl = ilu(convert(AbstractMatrix,W), τ = 50.0)
+  else
+    Pl = Plprev
+  end
+  Pl,nothing
+end
 
-sol = solve(prob, QNDF(linsolve=KLUFactorization(),concrete_jac=true), saveat = collect(range(0,stop=3600/timescale, length=100)))
 
-=#
+Base.eltype(::IncompleteLU.ILUFactorization{Tv,Ti}) where {Tv,Ti} = Tv
+
+
+sol = solve(prob, QNDF(linsolve=KrylovJL_GMRES(),precs=incompletelu,concrete_jac=true), save_everystep=false)
+

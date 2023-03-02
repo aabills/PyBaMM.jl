@@ -30,7 +30,7 @@ using PyBaMM
   pybamm_pack.build_pack()
 
 
-  timescale = pyconvert(Float64,pybamm_pack.timescale.evaluate())
+  timescale = 1
   cellconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", inplace=true)
   cellconverter.convert_tree_to_intermediate(pybamm_pack.cell_model)
   cell_str = cellconverter.build_julia_code()
@@ -122,7 +122,7 @@ end
 
   pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermals=thermals, operating_mode = "CV")
   pybamm_pack.build_pack()
-  timescale = pyconvert(Float64,pybamm_pack.timescale.evaluate())
+  timescale = 1
   cellconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", inplace=true)
   cellconverter.convert_tree_to_intermediate(pybamm_pack.cell_model)
   cell_str = cellconverter.build_julia_code()

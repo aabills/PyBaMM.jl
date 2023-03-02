@@ -6,6 +6,7 @@ using OrdinaryDiffEq
 
 
 pybamm=pyimport("pybamm")
+np = pyimport("numpy")
 
 @testset "Dual Cache ODE" begin
     # load model
@@ -18,10 +19,10 @@ pybamm=pyimport("pybamm")
 
     # Calculate voltage in Julia
     V = get_variable(sim, sol, "Terminal voltage [V]")
-    t = get_variable(sim, sol, "Time [s]")
+    t = sol.t
 
     # Solve in python
-    sol_pybamm = sim.solve(t)
+    sol_pybamm = sim.solve(np.array(sol.t))
     V_pybamm = pyconvert(Array{Float64},get(sol_pybamm, "Terminal voltage [V]",nothing).data)
     @test all(isapprox.(V_pybamm, V, atol=1e-2))
 end
@@ -39,10 +40,10 @@ end
 
     # Calculate voltage in Julia
     V = get_variable(sim, sol, "Terminal voltage [V]")
-    t = get_variable(sim, sol, "Time [s]")
+    t = sol.t
 
     # Solve in python
-    sol_pybamm = sim.solve(t)
+    sol_pybamm = sim.solve(np.array(sol.t))
     V_pybamm = pyconvert(Array{Float64},get(sol_pybamm, "Terminal voltage [V]",nothing).data)
     @test all(isapprox.(V_pybamm, V, atol=1e-2))
 end
@@ -59,10 +60,10 @@ end
 
     # Calculate voltage in Julia
     V = get_variable(sim, sol, "Terminal voltage [V]")
-    t = get_variable(sim, sol, "Time [s]")
+    t = sol.t
 
     # Solve in python
-    sol_pybamm = sim.solve(t)
+    sol_pybamm = sim.solve(np.array(sol.t))
     V_pybamm = pyconvert(Array{Float64},get(sol_pybamm, "Terminal voltage [V]",nothing).data)
     @test all(isapprox.(V_pybamm, V, atol=1e-2))
 end
@@ -78,10 +79,10 @@ end
 
     # Calculate voltage in Julia
     V = get_variable(sim, sol, "Terminal voltage [V]")
-    t = get_variable(sim, sol, "Time [s]")
+    t = sol.t
 
     # Solve in python
-    sol_pybamm = sim.solve(t)
+    sol_pybamm = sim.solve(np.array(sol.t))
     V_pybamm = pyconvert(Array{Float64},get(sol_pybamm, "Terminal voltage [V]",nothing).data)
     @test all(isapprox.(V_pybamm, V, atol=1e-2))
 end

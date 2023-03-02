@@ -181,7 +181,7 @@ class Pack(object):
                 sim.built_model.concatenated_rhs, sim.built_model.concatenated_algebraic
             )
 
-        self.timescale = sim.built_model.timescale
+        self.timescale = 1
 
         self.len_cell_algebraic = sim.built_model.len_alg
 

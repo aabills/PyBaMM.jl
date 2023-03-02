@@ -5,8 +5,8 @@ pack = PyBaMM.pack
 pybamm2julia = PyBaMM.pybamm2julia
 setup_circuit = PyBaMM.setup_circuit
 
-Np = 5
-Ns = 5
+Np = 3
+Ns = 3
 curr = 1.8
 p = nothing 
 t = 0.0
@@ -16,11 +16,11 @@ model = pybamm.lithium_ion.DFN(name="DFN", options=options)
 netlist = setup_circuit.setup_circuit(Np, Ns, I=curr)
 
 
-pybamm_pack = pack.Pack(model, netlist, functional=functional, thermal=true, thermal_type="legacy", top_bc="symmetry")
+pybamm_pack = pack.Pack(model, netlist, functional=functional, thermals=true, thermal_type="legacy", top_bc="symmetry")
 pybamm_pack.build_pack()
 
-#=
-timescale = pyconvert(Float64,pybamm_pack.timescale.evaluate())
+
+timescale = 1
 cellconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", inplace=true)
 cellconverter.convert_tree_to_intermediate(pybamm_pack.cell_model)
 cell_str = cellconverter.build_julia_code()
@@ -76,4 +76,4 @@ prob = ODEProblem(func, jl_vec, (0.0, 3600/timescale), nothing)
 
 
 sol = solve(prob, QNDF(linsolve=KLUFactorization(),concrete_jac=true), saveat = collect(range(0,stop=3600/timescale, length=100)))
-=#
+
