@@ -14,7 +14,7 @@ functional = true
 voltage_functional = true
 
 options = pydict(Dict("thermal" => "lumped"))
-model = pybamm.lithium_ion.DFN(name="DFN", options=options)
+model = pybamm.lithium_ion.SPMe(name="DFN", options=options)
 
 netlist = setup_circuit.setup_circuit(Np, Ns, I=curr)  
 circuit_graph = setup_circuit.process_netlist_from_liionpack(netlist) 
@@ -32,7 +32,7 @@ cₚ = 0.895
 ṁ = 1.0
 height = 0.1
 width = 0.01
-Tᵢ = 275.0
+Tᵢ = 298.0
 COP = .5
 
 #numerical Parameters (complete guess)
@@ -146,13 +146,12 @@ mass_matrix = sparse(diagm(differential_vars))
 func = ODEFunction(jl_func, mass_matrix=mass_matrix, jac_prototype=jac_sparsity)
 prob = ODEProblem(func, jl_vec, (0.0, 3600/timescale), p)
 
-sol = solve(prob, QNDF(linsolve=KLUFactorization(),concrete_jac=true))
+sol = solve(prob, QNDF(autodiff=false), save_everystep = true)
 
 
 I = Array(sol)[1, :]
 V = Array(sol)[3, :]
 
 P_pack = I.*V
-P_fridge = ṁ*cₚ.*(Array(sol)[end] .- Tᵢ)./COP
+P_fridge = ṁ*cₚ.*(Array(sol)[end, :] .- Tᵢ)./COP
 η_pack = (P_pack .- P_pump .- P_fridge)./P_pack
-
