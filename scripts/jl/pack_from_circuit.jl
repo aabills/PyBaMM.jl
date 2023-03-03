@@ -6,9 +6,9 @@ pybamm2julia = PyBaMM.pybamm2julia
 setup_circuit = PyBaMM.setup_circuit
 setup_thermal_graph = PyBaMM.setup_thermal_graph
 
-Np = 3
-Ns = 3
-curr = 1.8
+Np = 2
+Ns = 10
+curr = 1.2
 t = 0.0
 functional = true
 voltage_functional = true
@@ -22,8 +22,44 @@ circuit_graph = setup_circuit.process_netlist_from_liionpack(netlist)
 thermal_pipe = setup_thermal_graph.BandolierCoolingGraph(circuit_graph, mdot=nothing, cp=nothing, T_i=nothing, transient=true)
 thermal_pipe_graph = thermal_pipe.thermal_graph
 
+#LIQUID GLYCOL
+ρ = 1115.
+cₚ = 0.895
+μ = 1.61e-2
+
+
+#Cooling System Parameters
+ṁ = 1.0
+height = 0.1
+width = 0.01
+Tᵢ = 275.0
+COP = .5
+
+#numerical Parameters (complete guess)
+Δx = 0.04 
+
+#Geometry
+P = (2*height + 2*width)
+A = height*width
+
 input_parameter_order = ["T_i","mdot","cp", "rho_cooling", "A_cooling", "deltax"]
-p = [300.0,10000000000.0,100.0, 1e2, 1.0, 1.0]
+p = [Tᵢ, ṁ , cₚ, ρ, A, Δx]
+
+
+
+Re = ṁ/(μ * (P))
+
+if Re >= 2000
+    error("turbulent flow not supported")
+else
+    fd = 84/Re
+end
+
+Dₕ = 4*height*width/(A)
+Vₘ = ṁ/(ρ*A)
+dpdx = (fd*Vₘ*Vₘ*ρ)/(2*Dₕ)
+L = Δx * pyconvert(Any, thermal_pipe.nodes_per_pipe)
+P_pump = L*dpdx*ṁ
 
 
 pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermals=thermal_pipe, voltage_functional=voltage_functional, input_parameter_order=input_parameter_order)
@@ -103,24 +139,20 @@ cell_rhs = trues(pyconvert(Int,pybamm_pack.len_cell_rhs))
 cell_algebraic = falses(pyconvert(Int,pybamm_pack.len_cell_algebraic))
 cells = repeat(vcat(cell_rhs,cell_algebraic),pyconvert(Int, pybamm_pack.num_cells))
 thermals = trues(pyconvert(Int,pybamm_pack.len_thermal_eqs))
-differential_vars = vcat(pack_eqs,cells, thermals)
+differential_vars = vcat(pack_eqs, cells, thermals)
 mass_matrix = sparse(diagm(differential_vars))
+
+
 func = ODEFunction(jl_func, mass_matrix=mass_matrix, jac_prototype=jac_sparsity)
 prob = ODEProblem(func, jl_vec, (0.0, 3600/timescale), p)
 
-using IncompleteLU
-function incompletelu(W,du,u,p,t,newW,Plprev,Prprev,solverdata)
-  if newW === nothing || newW
-    Pl = ilu(convert(AbstractMatrix,W), τ = 50.0)
-  else
-    Pl = Plprev
-  end
-  Pl,nothing
-end
+sol = solve(prob, QNDF(linsolve=KLUFactorization(),concrete_jac=true))
 
 
-Base.eltype(::IncompleteLU.ILUFactorization{Tv,Ti}) where {Tv,Ti} = Tv
+I = Array(sol)[1, :]
+V = Array(sol)[3, :]
 
-
-sol = solve(prob, QNDF(linsolve=KrylovJL_GMRES(),precs=incompletelu,concrete_jac=true), save_everystep=false)
+P_pack = I.*V
+P_fridge = ṁ*cₚ.*(Array(sol)[end] .- Tᵢ)./COP
+η_pack = (P_pack .- P_pump .- P_fridge)./P_pack
 
