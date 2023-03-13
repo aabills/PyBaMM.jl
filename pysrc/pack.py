@@ -146,6 +146,12 @@ class Pack(object):
             ambient_temperature = pybamm2julia.PsuedoInputParameter("ambient_temperature")
             self.ambient_temperature = ambient_temperature
             parameter_values.update({"Ambient temperature [K]": ambient_temperature})
+            if hasattr(self.thermals, "h"):
+                if self.thermals.h is not None:
+                    parameter_values.update({"Total heat transfer coefficient [W.m-2.K-1]" : self.thermals.h})
+            if hasattr(self.thermals, "A_cooling"):
+                if self.thermals.A_cooling is not None:
+                    parameter_values.update({"Cell cooling surface area [m2]" : self.thermals.A_cooling})
         else:
             initial_inputs = {
                 "cell_current" : initial_pack_current

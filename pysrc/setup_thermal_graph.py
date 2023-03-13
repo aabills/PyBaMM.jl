@@ -3,8 +3,11 @@ from collections import OrderedDict
 import pybamm
 import copy
 
+class ThermalGraph(object):
+    pass
 
-class LegacyThermalGraph(object):
+
+class LegacyThermalGraph(ThermalGraph):
     def __init__(
         self,
         circuit_graph,
@@ -128,7 +131,7 @@ class LegacyThermalGraph(object):
                 raise NotImplementedError("only batteries and ambient temperature can be calculated right now.")
 
 
-class RibbonCoolingGraph(object):
+class RibbonCoolingGraph(ThermalGraph):
     def __init__(
         self,
         circuit_graph,
@@ -298,7 +301,7 @@ class RibbonCoolingGraph(object):
             pack.ambient_temperature.set_psuedo(pack.batteries[batt]["cell"], ambient_temperature)
 
 
-class BandolierCoolingGraph(object):
+class BandolierCoolingGraph(ThermalGraph):
     def __init__(
         self,
         circuit_graph,
@@ -308,12 +311,16 @@ class BandolierCoolingGraph(object):
         transient = False,
         rho = None,
         A = None,
-        deltax = None
+        deltax = None,
+        h = None,
+        A_cooling = None
     ):
         self.transient = transient
         self.rho = rho
         self.A = A
         self.deltax = deltax
+        self.h = h
+        self.A_cooling = A_cooling
         xs = []
         ys = []
         self.thermal_graph = nx.Graph()
