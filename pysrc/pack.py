@@ -432,7 +432,11 @@ class Pack(object):
             ics_function = pybamm.numpy_concatenation(*[curr_ics, curr_source_v_ics, cell_ics])
             ics_jl = pybamm2julia.PybammJuliaFunction(inputs,ics_function,"u0!",inplace=False)
         else:
-            thermal_ics = pybamm.numpy_concatenation(*[self.thermals.T_i for r in range(len_thermal_eqs)])
+            if type(self.thermals.T_i) == float:
+                T_i = pybamm.Scalar(self.thermals.T_i)
+            else:
+                T_i = self.thermals.T_i
+            thermal_ics = pybamm.numpy_concatenation(*[T_i for r in range(len_thermal_eqs)])
             ics_function = pybamm.numpy_concatenation(*[curr_ics, curr_source_v_ics, cell_ics, thermal_ics])
             ics_jl = pybamm2julia.PybammJuliaFunction(inputs,ics_function,"u0!",inplace=False)
         return ics_jl
