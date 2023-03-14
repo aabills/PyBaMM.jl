@@ -146,8 +146,14 @@ class Pack(object):
             ambient_temperature = pybamm2julia.PsuedoInputParameter("ambient_temperature")
             self.ambient_temperature = ambient_temperature
             parameter_values.update({"Ambient temperature [K]": ambient_temperature})
+            dynamic_h = False
             if hasattr(self.thermals, "h"):
                 if self.thermals.h is not None:
+                    if hasattr(self.thermals, "dynamic_h"):
+                        if self.thermals.dynamic_h:
+                            initial_h = parameter_values["Total heat transfer coefficient [W.m-2.K-1]"]
+                            initial_inputs.update({"h" : initial_h})
+                            dynamic_h = True
                     parameter_values.update({"Total heat transfer coefficient [W.m-2.K-1]" : self.thermals.h})
             if hasattr(self.thermals, "A_cooling"):
                 if self.thermals.A_cooling is not None:
@@ -213,24 +219,40 @@ class Pack(object):
 
             if self._implicit:
                 if self.thermals is not None:
-                    self.cell_model = pybamm2julia.PybammJuliaFunction(
-                        [sv, cell_current, ambient_temperature, dsv] + lsv,
-                        self.cell_model,
-                        "cell!",
-                        True,
-                    )
+                    if dynamic_h:
+                        self.cell_model = pybamm2julia.PybammJuliaFunction(
+                            [sv, cell_current, ambient_temperature, dsv, self.thermals.h] + lsv,
+                            self.cell_model,
+                            "cell!",
+                            True,
+                        )
+                    else:
+                        self.cell_model = pybamm2julia.PybammJuliaFunction(
+                            [sv, cell_current, ambient_temperature, dsv] + lsv,
+                            self.cell_model,
+                            "cell!",
+                            True,
+                        )
                 else:
                     self.cell_model = pybamm2julia.PybammJuliaFunction(
                         [sv, cell_current, dsv] + lsv, self.cell_model, "cell!", True
                     )
             else:
                 if self.thermals is not None:
-                    self.cell_model = pybamm2julia.PybammJuliaFunction(
-                        [sv, cell_current, ambient_temperature] + lsv,
-                        self.cell_model,
-                        "cell!",
-                        True,
-                    )
+                    if dynamic_h:
+                        self.cell_model = pybamm2julia.PybammJuliaFunction(
+                            [sv, cell_current, ambient_temperature, self.thermals.h] + lsv,
+                            self.cell_model,
+                            "cell!",
+                            True,
+                        )
+                    else:
+                        self.cell_model = pybamm2julia.PybammJuliaFunction(
+                            [sv, cell_current, ambient_temperature] + lsv,
+                            self.cell_model,
+                            "cell!",
+                            True,
+                        )
                 else:
                     self.cell_model = pybamm2julia.PybammJuliaFunction(
                         [sv, cell_current] + lsv, self.cell_model, "cell!", True

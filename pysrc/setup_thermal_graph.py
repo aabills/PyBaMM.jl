@@ -2,9 +2,15 @@ import networkx as nx
 from collections import OrderedDict
 import pybamm
 import copy
+import pybamm2julia
+import warnings
 
 class ThermalGraph(object):
     def __init__(self):
+        pass
+    
+    #This function replaces the battery parameters if necessary
+    def replace_battery_params(self, parameter_values):
         pass
 
     def build_battery_dict(self, circuit_graph):
@@ -45,6 +51,7 @@ class LegacyThermalGraph(ThermalGraph):
         left_bc = "ambient",
         right_bc = "ambient"    
     ):
+        warnings.warn("LegacyThermalGraph is replicated, please use NaturalConvectionGraph")
         self.thermal_graph = nx.Graph()
         self.top_bc = top_bc
         self.bottom_bc = bottom_bc
@@ -153,6 +160,8 @@ class RibbonCoolingGraph(ThermalGraph):
         cp=None,
         T_i = 293,
     ):
+        warnings.warn("RibbonCoolingGraph is replicated, please use BandolierCoolingGraph")
+        
         self.thermal_graph = nx.Graph()
         self.batteries = OrderedDict()
 
@@ -520,16 +529,32 @@ class NaturalConvectionGraph(ThermalGraph):
         left_bc = "ambient",
         right_bc = "ambient",
         alpha =  1.0,
-        h = None,
+        h = "dynamic",
         dx = 0.01,
         T_amb = 298.0,
         cp = 1,
-        rho = 1.293
+        rho = 1.293,
+        mu = 1.0,
+        D = 1.0
     ):
         self.cp = cp
         self.rho = rho
         self.alpha = alpha
-        self.h = h
+        self.mu = mu
+        self.D = D
+
+        #Set dynamic h
+        if h == "dynamic":
+            self.h = pybamm2julia.PsuedoInputParameter("h")
+            self.dynamic_h = True
+            if self.mu is None:
+                raise AssertionError("Must provide viscosity for dynamic h")
+            if self.D is None:
+                raise AssertionError("Must provide characteristic length for dynamic h")
+        else:
+            self.h = h
+            self.dynamic_h = False
+        
         self.top_bc = top_bc
         self.bottom_bc = bottom_bc
         self.left_bc = left_bc
@@ -628,9 +653,22 @@ class NaturalConvectionGraph(ThermalGraph):
         for node in self.air_nodes:
             # Start by creating a pybamm state variable for this node, then connect the battery to the node.
             batt = self.air_nodes[node]["batt"]
-            temperature = pybamm.StateVector(slice(pack.offset, pack.offset + 1), name=node)
-            self.air_nodes[node]["temperature"] = temperature
-            pack.ambient_temperature.set_psuedo(pack.batteries[batt]["cell"], temperature)
+            ambient_temperature = pybamm.StateVector(slice(pack.offset, pack.offset + 1), name=node)
+            self.air_nodes[node]["temperature"] = ambient_temperature
+            pack.ambient_temperature.set_psuedo(pack.batteries[batt]["cell"], ambient_temperature)
+            self.air_nodes[node]["h"] = self.h
+            #Set the heat transfer coefficient if dynamic
+            if self.dynamic_h:
+                cell_temperature = pack.batteries[self.air_nodes[node]["batt"]]["temperature"]
+                beta = 1/cell_temperature
+                nu = self.mu / self.rho
+                Gr = 9.81*beta*(cell_temperature - ambient_temperature)*self.D*self.D*self.D/(nu*nu)
+                Nu = 0.46*pybamm.Power(Gr, 0.25)
+                k = self.alpha*self.cp*self.rho
+                h = Nu*k/self.D
+                self.h.set_psuedo(pack.batteries[batt]["cell"], h)
+                self.air_nodes[node]["h"] = h
+
             pack.offset += 1
         # Set up equations
         eqs = []
@@ -651,9 +689,9 @@ class NaturalConvectionGraph(ThermalGraph):
                 raise AssertionError("All nodes must have 4 neighbors")
             expr = self.alpha*expr/(self.dx*self.dx)
             #Now add the source term
-            h = pack._parameter_values["Total heat transfer coefficient [W.m-2.K-1]"]
+            h = self.air_nodes[node]["h"]
             A = pack._parameter_values["Cell cooling surface area [m2]"]
-            expr = expr + (h*A/(self.cp*self.rho))*(pack.batteries[self.air_nodes[node]["batt"]]["temperature"] - my_T)
+            expr = expr + (h*A/(self.cp*self.rho*self.dx*self.dx*self.D))*(pack.batteries[self.air_nodes[node]["batt"]]["temperature"] - my_T)
             eqs.append(expr)
         return eqs
          
