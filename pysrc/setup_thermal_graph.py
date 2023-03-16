@@ -532,7 +532,7 @@ class NaturalConvectionGraph(ThermalGraph):
         h = "dynamic",
         dx = 0.01,
         T_amb = 298.0,
-        cp = 1,
+        cp = 1000,
         rho = 1.293,
         mu = 1.0,
         D = 1.0
