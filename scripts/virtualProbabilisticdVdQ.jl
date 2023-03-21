@@ -130,34 +130,62 @@ cell_str = cellconverter.build_julia_code(funcname="wooo")
 cell_str = pyconvert(String, cell_str)
 cell! = eval(Meta.parse(cell_str))
 
-# get_voltage
+# get_voltage function
 get_voltage = pybamm2julia.PybammJuliaFunction([sv, eps_n, eps_p], sim.built_model.variables["Terminal voltage [V]"], "get_voltage", false)
 var_converter = pybamm2julia.JuliaConverter(inplace=false, input_parameter_order=input_parameter_order, cache_type="dual")
 var_converter.convert_tree_to_intermediate(get_voltage)
 var_str = var_converter.build_julia_code()
 get_voltage = runtime_eval(Meta.parse(pyconvert(String,var_str)))
 
+#Generate Training Data
+parameter_values_data = pybamm.ParameterValues("Chen2020")
+model_data = pybamm.lithium_ion.SPMe(name="SPMe")
+sim_data = pybamm.Simulation(model_data, parameter_values = parameter_values_data)
+
+prob_data,cbs_data = get_ode_problem(sim_data, 100.0, inputs, cache_type="dual");
+sol_data = solve(prob_data, QNDF(), saveat=1.0);
+get_voltage_data = pybamm2julia.PybammJuliaFunction([sv], sim_data.built_model.variables["Terminal voltage [V]"], "get_voltage_data", false)
+
+var_converter_data = pybamm2julia.JuliaConverter(inplace=false, cache_type="dual")
+var_converter_data.convert_tree_to_intermediate(get_voltage_data)
+var_str_data = var_converter_data.build_julia_code()
+get_voltage_data = runtime_eval(Meta.parse(pyconvert(String,var_str_data)))
+
+voltage_data = Array{Float64}(undef, length(sol_data.t))
+for i in 1:length(sol_data.t)
+    voltage_data[i] = get_voltage_data(sol_data.u[i])[1]
+end
 
 
 
 ##### TEST SOLVE #####
-p = [eps_p_init, eps_n_init, Q_Li_init]
-test_vals = [0.9106121196114546, 0.026347301451411866, 1.0]
+@model function turing_with_ics(data)
+    eps_p ~ Uniform(0.6, 0.8)
+    eps_n ~ Uniform(0.6, 0.8)
+    Q_Li ~ truncated(Normal(7.61, 0.01), 6, 8)
 
-nlp = NonlinearProblem(initial_conc_func, test_vals, p=p)
-sol = solve(nlp, NewtonRaphson())
+    p = [eps_p_init, eps_n_init, Q_Li_init]
+    test_vals = [0.9106121196114546, 0.026347301451411866, 1.0]
 
-c0s = get_initial_concentrations(sol.u, p)
+    nlp = NonlinearProblem(initial_conc_func, test_vals, p=p)
+    sol = solve(nlp, NewtonRaphson())
 
-c0_p = c0s[1]
-c0_n = c0s[2]
+    c0s = get_initial_concentrations(sol.u, p)
 
-ics = ics_func(p, c0_p, c0_n)
+    c0_p = c0s[1]
+    c0_n = c0s[2]
 
-prob = ODEProblem(cell!, ics, (0., 100.), p)
-sol = solve(prob, QNDF())
+    ics = ics_func(p, c0_p, c0_n)
 
-for i in 1:length(sol.t)
-    voltage[i] = get_voltage(sol.u[i], p)[1]
+    prob = ODEProblem(cell!, ics, (0., 100.), p)
+    predicted = solve(prob, QNDF(), saveat=1.0)
+
+    for i in 1:length(predicted.t)
+        data[i] ~ Normal(get_voltage(predicted.u[i], p)[1], 0.001)
+    end
 end
+
+turing_function = turing_with_ics(voltage)
+
+chain = sample(turing_function, NUTS(), MCMCSerial(), 5000, 1)
 
