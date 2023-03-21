@@ -139,6 +139,7 @@ get_voltage = runtime_eval(Meta.parse(pyconvert(String,var_str)))
 
 #Generate Training Data
 parameter_values_data = pybamm.ParameterValues("Chen2020")
+#parameter_values_data["Positive electrode active material volume fraction"] = 0.6
 model_data = pybamm.lithium_ion.SPMe(name="SPMe")
 sim_data = pybamm.Simulation(model_data, parameter_values = parameter_values_data)
 
@@ -160,32 +161,41 @@ end
 
 ##### TEST SOLVE #####
 @model function turing_with_ics(data)
-    eps_p ~ Uniform(0.6, 0.8)
-    eps_n ~ Uniform(0.6, 0.8)
-    Q_Li ~ truncated(Normal(7.61, 0.01), 6, 8)
-
-    p = [eps_p_init, eps_n_init, Q_Li_init]
-    test_vals = [0.9106121196114546, 0.026347301451411866, 1.0]
-
-    nlp = NonlinearProblem(initial_conc_func, test_vals, p=p)
-    sol = solve(nlp, NewtonRaphson())
-
-    c0s = get_initial_concentrations(sol.u, p)
-
-    c0_p = c0s[1]
-    c0_n = c0s[2]
-
-    ics = ics_func(p, c0_p, c0_n)
-
-    prob = ODEProblem(cell!, ics, (0., 100.), p)
-    predicted = solve(prob, QNDF(), saveat=1.0)
-
-    for i in 1:length(predicted.t)
-        data[i] ~ Normal(get_voltage(predicted.u[i], p)[1], 0.001)
+    # priors
+    eps_p ~ Uniform(0.5, 0.7)
+    eps_n ~ Uniform(0.5, 0.8)
+    Q_Li ~ Uniform(7., 8.)
+    # parameter vector explicitly constructed
+    p = [eps_p, eps_n, Q_Li]
+    #solve nonlinear problem
+    test_vals = [0.95, 0.02, 1.0]
+    predicted = try
+        nlp = NonlinearProblem(initial_conc_func, test_vals, p=p)
+        sol = solve(nlp, NewtonRaphson())
+        #get solution from nonlinearproblem and use it to construct initial conditions
+        c0s = get_initial_concentrations(sol.u, p)
+        c0_p = c0s[1]
+        c0_n = c0s[2]
+        ics = ics_func(p, c0_p, c0_n)
+        #run the forward simulation
+        prob = ODEProblem(cell!, ics, (0., 100.), p)
+        sim_sol = solve(prob, QNDF(), saveat=1.0)
+        T = eltype(sim_sol.u[1])
+        predicted = Array{T, 1}(undef, length(data))
+        for i in 1:length(data)
+            predicted[i] = get_voltage(sim_sol.u[i], p)[1]
+        end
+        predicted
+    catch
+        predicted = 100 .*ones(length(data))
     end
+    data ~ MvNormal(predicted, 0.001)
+    return nothing
 end
 
-turing_function = turing_with_ics(voltage)
+turing_function = turing_with_ics(voltage_data)
 
-chain = sample(turing_function, NUTS(), MCMCSerial(), 5000, 1)
+θ = [[0.665, 0.75, 7.6]]
+
+chain = sample(turing_function, NUTS(), MCMCSerial(), 100, 1, init_params = θ)
 
