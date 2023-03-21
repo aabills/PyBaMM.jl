@@ -143,8 +143,8 @@ parameter_values_data = pybamm.ParameterValues("Chen2020")
 model_data = pybamm.lithium_ion.SPMe(name="SPMe")
 sim_data = pybamm.Simulation(model_data, parameter_values = parameter_values_data)
 
-prob_data,cbs_data = get_ode_problem(sim_data, 100.0, inputs, cache_type="dual");
-sol_data = solve(prob_data, QNDF(), saveat=1.0);
+prob_data,cbs_data = get_ode_problem(sim_data, 3600.0, inputs, cache_type="dual");
+sol_data = solve(prob_data, QNDF(), saveat=10.0);
 get_voltage_data = pybamm2julia.PybammJuliaFunction([sv], sim_data.built_model.variables["Terminal voltage [V]"], "get_voltage_data", false)
 
 var_converter_data = pybamm2julia.JuliaConverter(inplace=false, cache_type="dual")
@@ -178,8 +178,8 @@ end
         c0_n = c0s[2]
         ics = ics_func(p, c0_p, c0_n)
         #run the forward simulation
-        prob = ODEProblem(cell!, ics, (0., 100.), p)
-        sim_sol = solve(prob, QNDF(), saveat=1.0)
+        prob = ODEProblem(cell!, ics, (0., 3600.), p)
+        sim_sol = solve(prob, QNDF(), saveat=10.0)
         T = eltype(sim_sol.u[1])
         predicted = Array{T, 1}(undef, length(data))
         for i in 1:length(data)
@@ -197,5 +197,5 @@ turing_function = turing_with_ics(voltage_data)
 
 θ = [[0.665, 0.75, 7.6]]
 
-chain = sample(turing_function, NUTS(), MCMCSerial(), 100, 1, init_params = θ)
+chain = sample(turing_function, NUTS(), MCMCSerial(), 3000, 1, init_params = θ)
 
