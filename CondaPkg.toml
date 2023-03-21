@@ -4,6 +4,6 @@ casadi = ""
 python = "=3.9"
 
 [pip.deps]
-pybamm = "@ git+https://github.com/pybamm-team/PyBaMM@develop"
+pybamm = "@ git+https://github.com/abillscmu/PyBaMM@energy-summary"
 qtconsole = ""
 dfo-ls = ""

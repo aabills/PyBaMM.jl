@@ -9,7 +9,7 @@ setup_circuit = PyBaMM.setup_circuit
 setup_thermal_graph = PyBaMM.setup_thermal_graph
 
 Np = 2
-Ns = 2
+Ns = 5
 curr = 1.2
 t = 0.0
 functional = true
@@ -23,38 +23,43 @@ netlist = setup_circuit.setup_circuit(Np, Ns, I=curr)
 circuit_graph = setup_circuit.process_netlist_from_liionpack(netlist) 
 
 #Cooling System Parameters
+h_cell = 0.065 #18650
+a = 1.25
+D_cell = 0.018
+W_pack = Np*a*D_cell
+H_pack = h_cell
+L_pack = D_cell*a*Ns
+A_inlet = W_pack*H_pack
+COP = 1.0
 ṁ = 1.0
-height = 0.1
-width = 0.01
-P = (2*height + 2*width)
-A = height*width
-Dₕ = 4*height*width/(A)
-Tᵢ = 298.0
-COP = 2
-Δx = 0.04 
+Δx = a*D_cell
 
-#LIQUID GLYCOL
-ρ = 1115.
-cₚ = 0.895
-μ = 1.61e-2
-κₜ = 0.254
-Nu = 5.6
+coolant = "Novec 7500" 
+
+#Coolant Properties
+ρ = PyBaMM.coolant_properties[coolant]["Density [kg.m3]"]
+cₚ = PyBaMM.coolant_properties[coolant]["Specific heat capacity [J.kg.K]"]
+μ = PyBaMM.coolant_properties[coolant]["Dynamic viscosity [Pa-s]"]
+κₜ = PyBaMM.coolant_properties[coolant]["Thermal conductivity [W.m-K]"]
+
+
+#Fluids numbers 
+u_mean = ṁ/(A_inlet*ρ)
+u_max = ((a - 1)/a)*u_mean
+Dₕ = D_cell
+Re = ρ*u_max*Dₕ/μ
+Pr_f = cₚ*μ/κₜ
+
+Nu = PyBaMM.nusselt_mixed(false, 1, Re, Pr_f, Pr_f)
 h = Nu*κₜ/Dₕ
 
 #Peclet Number
 α = κₜ/(ρ*cₚ)
-Pe = Δx*(ṁ/(ρ*A))/α
+Pe = Δx*(ṁ/(ρ*A_inlet))/α
 
 
-
-input_parameter_order = ["T_i","mdot","cp", "rho_cooling", "A_cooling", "deltax"]
-p = [Tᵢ, ṁ , cₚ, ρ, A, Δx]
-
-
-thermal_pipe = setup_thermal_graph.ForcedConvectionGraph(circuit_graph, mdot=nothing, cp=nothing, T_i=nothing, h=h, A_cooling=0.0012250986127865292)
+thermal_pipe = setup_thermal_graph.ForcedConvectionGraph(circuit_graph, mdot=ṁ, cp=cₚ, T_i=298., h=h, A_cooling=A_inlet, rho=ρ, deltax = Δx, A=pyconvert(Float64, model.default_parameter_values["Cell cooling surface area [m2]"]))
 thermal_pipe_graph = thermal_pipe.thermal_graph
-
-Re = ṁ/(μ * (P))
 
 if Re >= 2000
     error("turbulent flow not supported")
@@ -63,7 +68,7 @@ else
 end
 
 
-pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermals=thermal_pipe, voltage_functional=voltage_functional, input_parameter_order=input_parameter_order)
+pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermals=thermal_pipe, voltage_functional=voltage_functional)
 
 println("compiling pack...")
 pybamm_pack.build_pack()
@@ -89,16 +94,16 @@ cell! = eval(Meta.parse(cell_str))
 
 
 
-myconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", override_psuedo=true, input_parameter_order=input_parameter_order)
+myconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", override_psuedo=true)
 myconverter.convert_tree_to_intermediate(pybamm_pack.pack)
 pack_str = myconverter.build_julia_code()
 
-icconverter = pybamm2julia.JuliaConverter(override_psuedo = true, input_parameter_order=input_parameter_order)
+icconverter = pybamm2julia.JuliaConverter(override_psuedo = true)
 icconverter.convert_tree_to_intermediate(pybamm_pack.ics)
 ic_str = icconverter.build_julia_code()
 
 u0 = eval(Meta.parse(pyconvert(String,ic_str)))
-jl_vec = u0(p)
+jl_vec = u0()
 
 pack_str = pyconvert(String, pack_str)
 jl_func = eval(Meta.parse(pack_str))
@@ -106,7 +111,7 @@ jl_func = eval(Meta.parse(pack_str))
 dy = similar(jl_vec)
 
 println("building jacobian sparsity...")
-jac_sparsity = float(Symbolics.jacobian_sparsity((du,u)->jl_func(du,u,p,t),dy,jl_vec))
+jac_sparsity = float(Symbolics.jacobian_sparsity((du,u)->jl_func(du,u,nothing,t),dy,jl_vec))
 println("done building jacobian sparsity...")
 
 
@@ -126,7 +131,7 @@ cell_str = cellconverter.build_julia_code()
 cell_str = pyconvert(String, cell_str)
 cell! = eval(Meta.parse(cell_str))
 
-myconverter = pybamm2julia.JuliaConverter(cache_type = "dual", override_psuedo=true, input_parameter_order=input_parameter_order)
+myconverter = pybamm2julia.JuliaConverter(cache_type = "dual", override_psuedo=true)
 myconverter.convert_tree_to_intermediate(pybamm_pack.pack)
 pack_str = myconverter.build_julia_code()
 
@@ -150,5 +155,16 @@ mass_matrix = sparse(diagm(differential_vars))
 
 println("building function")
 func = ODEFunction(jl_func, mass_matrix=mass_matrix, jac_prototype=jac_sparsity)
-prob = ODEProblem(func, jl_vec, (0.0, 3600/timescale), p)
+prob = ODEProblem(func, jl_vec, (0.0, 3600/timescale), nothing)
 println("problem created...")
+
+
+sol = solve(prob, QNDF(linsolve=KLUFactorization(), concrete_jac = true), save_everystep = true)
+
+
+Eu = PyBaMM.euler_inline(Re, a)
+Δp = Eu*0.5*ρ*u_max*u_max*Ns
+P_pump = Δp * ṁ
+T_in = 298.0
+T_out = sol[end][end]
+P_fridge = ṁ*cₚ*(T_out - T_in)/COP
