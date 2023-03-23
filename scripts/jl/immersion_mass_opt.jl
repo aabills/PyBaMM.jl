@@ -1,6 +1,8 @@
 using PyBaMM
 using ProgressMeter
 using Statistics
+using LinearSolve
+using LinearSolveCUDA
 
 pybamm = PyBaMM.pybamm
 pack = PyBaMM.pack
@@ -8,12 +10,16 @@ pybamm2julia = PyBaMM.pybamm2julia
 setup_circuit = PyBaMM.setup_circuit
 setup_thermal_graph = PyBaMM.setup_thermal_graph
 
-Np = 2
-Ns = 2
-curr = 1.2
+Np = 10
+Ns = 10
+curr = 7
 t = 0.0
 functional = true
 voltage_functional = true
+
+parameter_values = pybamm.ParameterValues("Marquis2019")
+experiment = pybamm.Experiment(["Discharge at $(13*Np*Ns) W for 75 sec", "Discharge at $(3.85*Np*Ns) W for 800 sec", "Discharge at $(13*Np*Ns) W for 105 sec", "Rest for 100 sec"]) #2C
+
 
 options = pydict(Dict("thermal" => "lumped"))
 model = pybamm.lithium_ion.SPMe(name="DFN", options=options)
@@ -31,7 +37,7 @@ H_pack = h_cell
 L_pack = D_cell*a*Ns
 A_inlet = W_pack*H_pack
 COP = 1.0
-ṁ = 1.0
+ṁ = 0.01
 Δx = a*D_cell
 
 coolant = "Novec 7500" 
@@ -48,6 +54,7 @@ u_mean = ṁ/(A_inlet*ρ)
 u_max = ((a - 1)/a)*u_mean
 Dₕ = D_cell
 Re = ρ*u_max*Dₕ/μ
+println("reynolds number is $Re")
 Pr_f = cₚ*μ/κₜ
 
 Nu = PyBaMM.nusselt_mixed(false, 1, Re, Pr_f, Pr_f)
@@ -68,7 +75,16 @@ else
 end
 
 
-pybamm_pack = pack.Pack(model, circuit_graph, functional=functional, thermals=thermal_pipe, voltage_functional=voltage_functional)
+pybamm_pack = pack.Pack(
+    model, 
+    circuit_graph, 
+    functional=functional, 
+    thermals=thermal_pipe, 
+    voltage_functional=voltage_functional, 
+    operating_mode = experiment, 
+    parameter_values=parameter_values,
+    initial_soc = 1.0
+)
 
 println("compiling pack...")
 pybamm_pack.build_pack()
@@ -97,6 +113,14 @@ cell! = eval(Meta.parse(cell_str))
 myconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", override_psuedo=true)
 myconverter.convert_tree_to_intermediate(pybamm_pack.pack)
 pack_str = myconverter.build_julia_code()
+
+forcing_function = pybamm_pack.forcing_functions[0]
+forcing_converter = pybamm2julia.JuliaConverter(cache_type = "symbolic")
+forcing_converter.convert_tree_to_intermediate(forcing_function)
+forcing_str = forcing_converter.build_julia_code()
+forcing_str = pyconvert(String,forcing_str)
+
+forcing_function = eval(Meta.parse(forcing_str))
 
 icconverter = pybamm2julia.JuliaConverter(override_psuedo = true)
 icconverter.convert_tree_to_intermediate(pybamm_pack.ics)
@@ -135,6 +159,14 @@ myconverter = pybamm2julia.JuliaConverter(cache_type = "dual", override_psuedo=t
 myconverter.convert_tree_to_intermediate(pybamm_pack.pack)
 pack_str = myconverter.build_julia_code()
 
+forcing_function = pybamm_pack.forcing_functions[0]
+forcing_converter = pybamm2julia.JuliaConverter(cache_type = "dual")
+forcing_converter.convert_tree_to_intermediate(forcing_function)
+forcing_str = forcing_converter.build_julia_code()
+forcing_str = pyconvert(String,forcing_str)
+
+forcing_function = eval(Meta.parse(forcing_str))
+
 pack_voltage_index = Np + 1
 pack_voltage = 1.0
 jl_vec[1:Np] .=  curr./Np
@@ -153,13 +185,43 @@ thermals = trues(pyconvert(Int,pybamm_pack.len_thermal_eqs))
 differential_vars = vcat(pack_eqs, cells, thermals)
 mass_matrix = sparse(diagm(differential_vars))
 
+
+
+
 println("building function")
-func = ODEFunction(jl_func, mass_matrix=mass_matrix, jac_prototype=jac_sparsity)
-prob = ODEProblem(func, jl_vec, (0.0, 3600/timescale), nothing)
-println("problem created...")
+func = ODEFunction(jl_func, mass_matrix=mass_matrix)
+prob = ODEProblem(func, jl_vec, (0.0, 1080.0), nothing)
+println("problem done")
 
+println("initializing")
+integrator = init(prob, QNDF(linsolve=KLUFactroization()), save_everystep = true, dtmax = 1.0)
+println("done initializing, cycling...")
+@showprogress "cycling..." for i in 1:length(experiment.operating_conditions)
+    forcing_function = pybamm_pack.forcing_functions[i-1]
+    termination_function = pybamm_pack.termination_functions[i-1]
 
-sol = solve(prob, QNDF(linsolve=KLUFactorization(), concrete_jac = true), save_everystep = true)
+    forcing_converter = pybamm2julia.JuliaConverter(cache_type = "dual")
+    forcing_converter.convert_tree_to_intermediate(forcing_function)
+    forcing_str = forcing_converter.build_julia_code()
+    forcing_str = pyconvert(String,forcing_str)
+
+    forcing_function = eval(Meta.parse(forcing_str))
+    
+    termination_converter = pybamm2julia.JuliaConverter(cache_type = "dual")
+    termination_converter.convert_tree_to_intermediate(termination_function)
+    termination_str = termination_converter.build_julia_code()
+    termination_str = pyconvert(String, termination_str)
+
+    termination_function = eval(Meta.parse(termination_str))
+
+    done = false
+    start_t = integrator.t
+    while !done
+        step!(integrator)
+        done = any((Base.@invokelatest termination_function(integrator.u, (integrator.t - start_t))).<0)
+    end
+    savevalues!(integrator)
+end
 
 
 Eu = PyBaMM.euler_inline(Re, a)

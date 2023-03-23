@@ -18,7 +18,7 @@ rest_time = ndf.times[end] - ndf.times[1]
 
 Np = 1
 Ns = 1
-curr = 10.0
+curr = 1.0
 t = 0.0
 functional = true
 options = Dict("thermal" => "lumped")

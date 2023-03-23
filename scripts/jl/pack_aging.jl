@@ -11,21 +11,15 @@ setup_circuit = PyBaMM.setup_circuit
 parameter_values = pybamm.ParameterValues("OKane2022")
 pv_chen = pybamm.ParameterValues("Chen2020")
 
-Np = 5
-Ns = 5
+Np = 2
+Ns = 2
 
 p = nothing 
 t = 0.0
-curr = 15.0
+curr = 10.0
 functional = true
 options = Dict(
-    "thermal" => "lumped",
-    "SEI" => "solvent-diffusion limited",
-    "lithium plating" => "reversible",
-    "particle mechanics" => "swelling and cracking",
-    "SEI on cracks" => "true",
-    "loss of active material" => "stress-driven",
-    "lithium plating porosity change" => "true"
+    "thermal" => "lumped"
 )
 
 parameter_values["Negative electrode OCP [V]"] = pv_chen["Negative electrode OCP [V]"]
