@@ -392,6 +392,8 @@ class Pack(object):
                 self.len_thermal_eqs = len(thermal_equations_vec)
             else:
                 self.len_thermal_eqs = 0
+        else: 
+            self.len_thermal_eqs = 0
 
 
         self.num_cells = len(self.batteries)
