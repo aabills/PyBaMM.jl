@@ -10,20 +10,32 @@ pybamm2julia = PyBaMM.pybamm2julia
 setup_circuit = PyBaMM.setup_circuit
 setup_thermal_graph = PyBaMM.setup_thermal_graph
 
-Np = 10
-Ns = 10
-curr = 7
+Np = 5
+Ns = 5
+λ = 100
+curr = 160
 t = 0.0
 functional = true
 voltage_functional = true
 
+options = pydict(Dict("thermal" => "lumped"))
+
+
 parameter_values = pybamm.ParameterValues("Marquis2019")
-experiment = pybamm.Experiment(["Discharge at $(13*Np*Ns) W for 75 sec", "Discharge at $(3.85*Np*Ns) W for 800 sec", "Discharge at $(13*Np*Ns) W for 105 sec", "Rest for 100 sec"]) #2C
+
+#make it an 18650
+parameter_values["Electrode height [m]"] = 5.8e-2
+parameter_values["Electrode width [m]"] = 61.5e-2*2
+parameter_values["Ambient temperature [K]"] = 305.
+parameter_values["Initial temperature [K]"] = 305.
+
+
+experiment = pybamm.Experiment(["Discharge at $(28*Np*Ns) W for 75 sec", "Discharge at $(8*Np*Ns) W for 800 sec", "Discharge at $(28*Np*Ns) W for 105 sec", "Rest for 300 sec"]) #2C
 
 
 options = pydict(Dict("thermal" => "lumped"))
 model = pybamm.lithium_ion.SPMe(name="DFN", options=options)
-parameter_values = model.default_parameter_values
+#parameter_values = model.default_parameter_values
 
 netlist = setup_circuit.setup_circuit(Np, Ns, I=curr)  
 circuit_graph = setup_circuit.process_netlist_from_liionpack(netlist) 
@@ -65,7 +77,7 @@ h = Nu*κₜ/Dₕ
 Pe = Δx*(ṁ/(ρ*A_inlet))/α
 
 
-thermal_pipe = setup_thermal_graph.ForcedConvectionGraph(circuit_graph, mdot=ṁ, cp=cₚ, T_i=298., h=h, A_cooling=A_inlet, rho=ρ, deltax = Δx, A=pyconvert(Float64, model.default_parameter_values["Cell cooling surface area [m2]"]))
+thermal_pipe = setup_thermal_graph.ForcedConvectionGraph(circuit_graph, mdot=ṁ, cp=cₚ, T_i=305., h=h, A_cooling=A_inlet, rho=ρ, deltax = Δx, A=pyconvert(Float64, model.default_parameter_values["Cell cooling surface area [m2]"]))
 thermal_pipe_graph = thermal_pipe.thermal_graph
 
 if Re >= 2000
@@ -189,12 +201,12 @@ mass_matrix = sparse(diagm(differential_vars))
 
 
 println("building function")
-func = ODEFunction(jl_func, mass_matrix=mass_matrix)
+func = ODEFunction(jl_func, mass_matrix=mass_matrix, jac_prototype=jac_sparsity)
 prob = ODEProblem(func, jl_vec, (0.0, 1080.0), nothing)
 println("problem done")
 
 println("initializing")
-integrator = init(prob, QNDF(linsolve=KLUFactroization()), save_everystep = true, dtmax = 1.0)
+integrator = init(prob, QNDF(linsolve=KLUFactorization(), concrete_jac=true), save_everystep = true, dtmax = 1.0)
 println("done initializing, cycling...")
 @showprogress "cycling..." for i in 1:length(experiment.operating_conditions)
     forcing_function = pybamm_pack.forcing_functions[i-1]
@@ -230,3 +242,12 @@ P_pump = Δp * ṁ
 T_in = 298.0
 T_out = sol[end][end]
 P_fridge = ṁ*cₚ*(T_out - T_in)/COP
+
+
+figure(1)
+clf()
+plot(integrator.sol.t, integrator.sol[end-4:end, :]')
+xlabel("Time [s]")
+ylabel("Fluid temperature [K]")
+legend(["Row 1", "Row 2", "Row 3", "Row 4", "Row 5"])
+savefig("immersion.pdf")

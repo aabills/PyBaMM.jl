@@ -8,10 +8,10 @@ pybamm2julia = PyBaMM.pybamm2julia
 setup_circuit = PyBaMM.setup_circuit
 setup_thermal_graph = PyBaMM.setup_thermal_graph
 
-Np = 5
-Ns = 5
+Np = 3
+Ns = 3
 λ = 100
-curr = 6.80616
+curr = 40.0
 t = 0.0
 functional = true
 voltage_functional = true
