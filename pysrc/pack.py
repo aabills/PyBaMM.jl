@@ -92,6 +92,7 @@ class Pack(object):
         initial_soc = 1.0,
         initial_pack_current = None,
         initial_pack_temperature = None,
+        inputs = None
     ):
         # Build the cell expression tree with necessary parameters.
         # think about moving this to a separate function.
@@ -162,6 +163,8 @@ class Pack(object):
             initial_inputs = {
                 "cell_current" : initial_pack_current
             }
+        if inputs is not None:
+            initial_inputs.update(inputs)
 
         cell_current = pybamm2julia.PsuedoInputParameter("cell_current")
         self.cell_current = cell_current
