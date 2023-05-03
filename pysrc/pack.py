@@ -262,6 +262,7 @@ class Pack(object):
                     )
         self._sv_done = []
         self.batt_string = None
+        #self.lsv = lsv
 
     def lolz(self):
         Np = self.len_pack_eqs - 1
@@ -298,6 +299,12 @@ class Pack(object):
                     ldp = list(self._distribution_params)
                 else:
                     ldp = []
+                if self._input_parameter_order is not None:
+                    for p in self._input_parameter_order:
+                        psuedo_parameter = pybamm2julia.PsuedoInputParameter(p)
+                        psuedo_parameter.children = [pybamm.InputParameter(p)]
+                        psuedo_parameter.set_id()
+                        ldp.append(psuedo_parameter)          
                 voltage_func = pybamm2julia.PybammJuliaFunction([sv, self.cell_current] + ldp, symbol, "voltage_func", True)
                 self.voltage_func = voltage_func
             symbol = deepcopy(self.voltage_func)
