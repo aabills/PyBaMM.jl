@@ -19,7 +19,7 @@ voltage_functional = true
 options = pydict(Dict("thermal" => "lumped"))
 
 
-parameter_values = pybamm.ParameterValues("Marquis2019")
+parameter_values = pybamm.ParameterValues("Chen2020")
 
 #make it an 18650
 parameter_values["Electrode height [m]"] = 5.8e-2
