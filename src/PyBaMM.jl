@@ -54,4 +54,7 @@ export generate_jacobian
 include("pack_postprocessing.jl")
 export get_pack_variables
 
+include("fluids_numbers.jl")
+include("properties.jl")
+
 end # module

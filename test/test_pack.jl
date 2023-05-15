@@ -179,7 +179,5 @@ end
   sol = solve(prob, QNDF(linsolve=KLUFactorization(),concrete_jac=true))
 
   @test all(isapprox(sol[4,:],12.0*ones(length(sol.t)),atol=1e-2))
-
-
 end
 

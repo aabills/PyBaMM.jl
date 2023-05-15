@@ -47,7 +47,7 @@ mid_x = min_x + x_range/2
 node_color = vcat(300.0,Array(sol)[end-5:end,end])
 
 
-
+using PythonPlot
 figure(1)
 clf()
 G = pybamm_pack.circuit_graph
@@ -55,7 +55,7 @@ H = pybamm_pack.thermals.thermal_graph
 nx.draw_networkx_edges(G, pos=pos, edgelist=battery_edges, width=50,edge_color = "tab:green", label="Cell")
 nx.draw_networkx_edges(G, pos=pos, edgelist=resistor_edges, width=1,edge_color = [0 0 0],label="Resistor")
 nx.draw_networkx_nodes(G, pos=pos,node_size=15,node_color = [0 0 0], label="Electrical Node")
-nx.draw_networkx_nodes(H, pos=thermal_pos, node_color=node_color,label="Thermal Node", node_size=25, nodelist = node_list, cmap=plt.cm.Reds)
+nx.draw_networkx_nodes(H, pos=thermal_pos,label="Thermal Node", node_size=25, nodelist = node_list)
 #nx.draw_networkx_labels(H, pos=thermal_pos)
 nx.draw_networkx_edges(H, pos=thermal_pos,width=5, edge_color="tab:red", alpha=0.4,label="Thermal Connection")
 plt.legend(loc="center right", bbox_to_anchor=(0, 0.5))

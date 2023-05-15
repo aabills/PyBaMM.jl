@@ -92,6 +92,7 @@ class Pack(object):
         initial_soc = 1.0,
         initial_pack_current = None,
         initial_pack_temperature = None,
+        inputs = None
     ):
         # Build the cell expression tree with necessary parameters.
         # think about moving this to a separate function.
@@ -146,10 +147,24 @@ class Pack(object):
             ambient_temperature = pybamm2julia.PsuedoInputParameter("ambient_temperature")
             self.ambient_temperature = ambient_temperature
             parameter_values.update({"Ambient temperature [K]": ambient_temperature})
+            dynamic_h = False
+            if hasattr(self.thermals, "h"):
+                if self.thermals.h is not None:
+                    if hasattr(self.thermals, "dynamic_h"):
+                        if self.thermals.dynamic_h:
+                            initial_h = parameter_values["Total heat transfer coefficient [W.m-2.K-1]"]
+                            initial_inputs.update({"h" : initial_h})
+                            dynamic_h = True
+                    parameter_values.update({"Total heat transfer coefficient [W.m-2.K-1]" : self.thermals.h})
+            if hasattr(self.thermals, "A_cooling"):
+                if self.thermals.A_cooling is not None:
+                    parameter_values.update({"Cell cooling surface area [m2]" : self.thermals.A_cooling})
         else:
             initial_inputs = {
                 "cell_current" : initial_pack_current
             }
+        if inputs is not None:
+            initial_inputs.update(inputs)
 
         cell_current = pybamm2julia.PsuedoInputParameter("cell_current")
         self.cell_current = cell_current
@@ -207,30 +222,47 @@ class Pack(object):
 
             if self._implicit:
                 if self.thermals is not None:
-                    self.cell_model = pybamm2julia.PybammJuliaFunction(
-                        [sv, cell_current, ambient_temperature, dsv] + lsv,
-                        self.cell_model,
-                        "cell!",
-                        True,
-                    )
+                    if dynamic_h:
+                        self.cell_model = pybamm2julia.PybammJuliaFunction(
+                            [sv, cell_current, ambient_temperature, dsv, self.thermals.h] + lsv,
+                            self.cell_model,
+                            "cell!",
+                            True,
+                        )
+                    else:
+                        self.cell_model = pybamm2julia.PybammJuliaFunction(
+                            [sv, cell_current, ambient_temperature, dsv] + lsv,
+                            self.cell_model,
+                            "cell!",
+                            True,
+                        )
                 else:
                     self.cell_model = pybamm2julia.PybammJuliaFunction(
                         [sv, cell_current, dsv] + lsv, self.cell_model, "cell!", True
                     )
             else:
                 if self.thermals is not None:
-                    self.cell_model = pybamm2julia.PybammJuliaFunction(
-                        [sv, cell_current, ambient_temperature] + lsv,
-                        self.cell_model,
-                        "cell!",
-                        True,
-                    )
+                    if dynamic_h:
+                        self.cell_model = pybamm2julia.PybammJuliaFunction(
+                            [sv, cell_current, ambient_temperature, self.thermals.h] + lsv,
+                            self.cell_model,
+                            "cell!",
+                            True,
+                        )
+                    else:
+                        self.cell_model = pybamm2julia.PybammJuliaFunction(
+                            [sv, cell_current, ambient_temperature] + lsv,
+                            self.cell_model,
+                            "cell!",
+                            True,
+                        )
                 else:
                     self.cell_model = pybamm2julia.PybammJuliaFunction(
                         [sv, cell_current] + lsv, self.cell_model, "cell!", True
                     )
         self._sv_done = []
         self.batt_string = None
+        #self.lsv = lsv
 
     def lolz(self):
         Np = self.len_pack_eqs - 1
@@ -267,6 +299,12 @@ class Pack(object):
                     ldp = list(self._distribution_params)
                 else:
                     ldp = []
+                if self._input_parameter_order is not None:
+                    for p in self._input_parameter_order:
+                        psuedo_parameter = pybamm2julia.PsuedoInputParameter(p)
+                        psuedo_parameter.children = [pybamm.InputParameter(p)]
+                        psuedo_parameter.set_id()
+                        ldp.append(psuedo_parameter)          
                 voltage_func = pybamm2julia.PybammJuliaFunction([sv, self.cell_current] + ldp, symbol, "voltage_func", True)
                 self.voltage_func = voltage_func
             symbol = deepcopy(self.voltage_func)
@@ -364,6 +402,8 @@ class Pack(object):
                 self.len_thermal_eqs = len(thermal_equations_vec)
             else:
                 self.len_thermal_eqs = 0
+        else: 
+            self.len_thermal_eqs = 0
 
 
         self.num_cells = len(self.batteries)
@@ -426,7 +466,11 @@ class Pack(object):
             ics_function = pybamm.numpy_concatenation(*[curr_ics, curr_source_v_ics, cell_ics])
             ics_jl = pybamm2julia.PybammJuliaFunction(inputs,ics_function,"u0!",inplace=False)
         else:
-            thermal_ics = pybamm.numpy_concatenation(*[self.thermals.T_i for r in range(len_thermal_eqs)])
+            if type(self.thermals.T_i) == float:
+                T_i = pybamm.Scalar(self.thermals.T_i)
+            else:
+                T_i = self.thermals.T_i
+            thermal_ics = pybamm.numpy_concatenation(*[T_i for r in range(len_thermal_eqs)])
             ics_function = pybamm.numpy_concatenation(*[curr_ics, curr_source_v_ics, cell_ics, thermal_ics])
             ics_jl = pybamm2julia.PybammJuliaFunction(inputs,ics_function,"u0!",inplace=False)
         return ics_jl
