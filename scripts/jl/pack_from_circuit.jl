@@ -6,15 +6,15 @@ pybamm2julia = PyBaMM.pybamm2julia
 setup_circuit = PyBaMM.setup_circuit
 setup_thermal_graph = PyBaMM.setup_thermal_graph
 
-Np = 2
-Ns = 10
-curr = 1.2
+Np = 20
+Ns = 20
+curr = 12
 t = 0.0
 functional = true
 voltage_functional = true
 
 options = pydict(Dict("thermal" => "lumped"))
-model = pybamm.lithium_ion.SPMe(name="DFN", options=options)
+model = pybamm.lithium_ion.DFN(name="DFN", options=options)
 
 netlist = setup_circuit.setup_circuit(Np, Ns, I=curr)  
 circuit_graph = setup_circuit.process_netlist_from_liionpack(netlist) 
@@ -144,10 +144,12 @@ mass_matrix = sparse(diagm(differential_vars))
 
 
 func = ODEFunction(jl_func, mass_matrix=mass_matrix, jac_prototype=jac_sparsity)
-prob = ODEProblem(func, jl_vec, (0.0, 3600/timescale), p)
+prob = ODEProblem(func, jl_vec, (0.0, 100/timescale), p)
 
-sol = solve(prob, QNDF(autodiff=false), save_everystep = true)
+sol = solve(prob, QNDF(), save_everystep = true)
 
+arr_sol = Array(sol)
+arr_t = Array(sol.t)
 
 I = Array(sol)[1, :]
 V = Array(sol)[3, :]
@@ -155,3 +157,6 @@ V = Array(sol)[3, :]
 P_pack = I.*V
 P_fridge = ṁ*cₚ.*(Array(sol)[end, :] .- Tᵢ)./COP
 η_pack = (P_pack .- P_pump .- P_fridge)./P_pack
+
+
+@save "test.jld2" arr_sol arr_t I V η_pack
