@@ -792,7 +792,11 @@ class ForcedConvectionGraph(ThermalGraph):
         if (self.deltax is None):
             self.deltax = pybamm.InputParameter("deltax")
             if  "deltax" not in pack._input_parameter_order:
-                raise AssertionError("please supply the pack with a deltax for the cooling fluid")      
+                raise AssertionError("please supply the pack with a deltax for the cooling fluid")
+        if (self.h is None):
+            self.h = pybamm.InputParameter("h")
+            if "h" not in pack._input_parameter_order:
+                raise AssertionError("Please supply a heat transfer coefficient")      
         eqs = []
         inlet_temp = self.T_i
         for n,y in enumerate(self.ys):
@@ -809,7 +813,7 @@ class ForcedConvectionGraph(ThermalGraph):
             for neighbor in pack.thermals.thermal_graph.neighbors(name):
                 neighbor_node = pack.thermals.thermal_graph.nodes[neighbor]
                 if neighbor_node["type"] == "battery":
-                    h = pack._parameter_values["Total heat transfer coefficient [W.m-2.K-1]"]
+                    h = self.h
                     A = pack._parameter_values["Cell cooling surface area [m2]"]
                     Q_in += (h*A*(pack.batteries[neighbor]["temperature"] - temperature))
             rhs = (Q_in - Q_out) / (self.cp * self.rho * self.deltax * self.A)
