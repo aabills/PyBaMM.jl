@@ -8,8 +8,8 @@ pybamm2julia = PyBaMM.pybamm2julia
 setup_circuit = PyBaMM.setup_circuit
 setup_thermal_graph = PyBaMM.setup_thermal_graph
 
-Np = 3
-Ns = 3
+Np = 2
+Ns = 2
 λ = 100
 curr = 40.0
 t = 0.0
@@ -25,13 +25,20 @@ parameter_values = pybamm.ParameterValues("Chen2020")
 parameter_values["Electrode height [m]"] = 5.8e-2
 parameter_values["Electrode width [m]"] = 61.5e-2*2
 
+parameter_values["Negative electrode thickness [m]"] = 60e-6
+parameter_values["Negative electrode porosity"] = 0.36
+parameter_values["Positive electrode thickness [m]"] = 55e-6
+parameter_values["Positive electrode porosity"] = 0.3
 
-experiment = pybamm.Experiment(["Discharge at $(32.7*Np*Ns) W for 75 sec", "Discharge at $(9.66*Np*Ns) W for 800 sec", "Discharge at $(32.7*Np*Ns) W for 105 sec"]) #2C
+parameter_values["Electrode width [m]"] = 1.8
+
+
+experiment = pybamm.Experiment(["Discharge at $(54*Np*Ns) W for 75 sec", "Discharge at $(16*Np*Ns) W for 800 sec", "Discharge at $(54*Np*Ns) W for 105 sec"])
 
 
 model = pybamm.lithium_ion.SPMe(name="DFN", options=options)
 
-netlist = setup_circuit.setup_circuit(Np, Ns, I=curr)  
+netlist = setup_circuit.setup_circuit(Np, Ns, I=curr, Rc=1e-5, Rb=1e-5, Rt=1e-5)  
 circuit_graph = setup_circuit.process_netlist_from_liionpack(netlist) 
 
 #Cooling System Parameters
@@ -238,7 +245,7 @@ function solve_with_p(p::Array{T}; itemized=false) where {T}
     L = Δx * pyconvert(Any, thermal_pipe.nodes_per_pipe)
     P_pump = L*dpdx*p[2]
     penalty = -λ*min(0, 300.0 .- T_out)
-    mdot_penalty = -log(p[2])/10000
+    mdot_penalty = -log(p[2])
     if itemized
         return P_pump, T_out
     else
@@ -252,7 +259,7 @@ T_out_arr = Float64[]
 
 ∇(p) = ForwardDiff.gradient(solve_with_p, p)
 p[2] = 0.1
-for i in 1:100
+for i in 1:5
     P_pump, T_out = solve_with_p(p, itemized=true)
     grad = ∇(p) .* [0, 1, 0, 0, 0, 0]
     global p = p - grad*0.00001

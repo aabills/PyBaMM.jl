@@ -176,3 +176,27 @@ coolant_properties = Dict(
     "Liquid glycol" => liquid_glycol_dict,
     "Water" => water_dict
 )
+
+coolant_properties_numbered = Dict(
+    1 => "Novec 7000",
+    2 => "Novec 7100",
+    3 => "Novec 7200",
+    4 => "Novec 7300",
+    5 => "Novec 7500",
+    6 => "Novec 7600",
+    7 => "Shell E5 TM 410",
+    8 => "Shell SL 3326",
+    9 => "Synfluid PAO 2",
+    10 => "Synfluid PAO 4",
+    11 => "Synfluid PAO 6",
+    12 => "Mineral Oil",
+    13 => "Cargill NatureCool 2000",
+    14 => "Dow SYLTHERM 800",
+    15 => "Dow SYLTHERM HF",
+    16 => "Dow SYLTHERM XLT",
+    17 => "Engineered Fluids AmpCool 110",
+    18 => "Engineered Fluids AmpCool 120",
+    19 => "Engineered Fluids AmpCool 130",
+    20 => "Engineered Fluids AmpCool 140",
+    21 => "Water"
+)

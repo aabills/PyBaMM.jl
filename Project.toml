@@ -1,7 +1,7 @@
 name = "PyBaMM"
 uuid = "fca5ce96-07e6-488e-83f1-b08868dda0ac"
 authors = ["Valentin Sulzer <valentinsulzer@hotmail.com>", "Alexander Bills <alexanderallenbills@gmail.com>"]
-version = "0.1.5"
+version = "0.1.6"
 
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"

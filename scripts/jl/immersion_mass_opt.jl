@@ -3,6 +3,8 @@ using ProgressMeter
 using Statistics
 using LinearSolve
 using LinearSolveCUDA
+using PythonPlot
+using JLD2
 
 pybamm = PyBaMM.pybamm
 pack = PyBaMM.pack
@@ -10,10 +12,10 @@ pybamm2julia = PyBaMM.pybamm2julia
 setup_circuit = PyBaMM.setup_circuit
 setup_thermal_graph = PyBaMM.setup_thermal_graph
 
-Np = 5
-Ns = 5
+Np = 8
+Ns = 8
 λ = 100
-curr = 160
+curr = 66
 t = 0.0
 functional = true
 voltage_functional = true
@@ -21,23 +23,29 @@ voltage_functional = true
 options = pydict(Dict("thermal" => "lumped"))
 
 
-parameter_values = pybamm.ParameterValues("Marquis2019")
+parameter_values = pybamm.ParameterValues("Chen2020")
 
 #make it an 18650
 parameter_values["Electrode height [m]"] = 5.8e-2
-parameter_values["Electrode width [m]"] = 61.5e-2*2
-parameter_values["Ambient temperature [K]"] = 305.
-parameter_values["Initial temperature [K]"] = 305.
+parameter_values["Electrode width [m]"] = 1.8
+
+#make it a power cell
+parameter_values["Negative electrode thickness [m]"] = 60e-6
+parameter_values["Negative electrode porosity"] = 0.35
+parameter_values["Positive electrode thickness [m]"] = 55e-6
+parameter_values["Positive electrode porosity"] = 0.3
+
+#parameter_values["Electrode width [m]"] = 1.4
 
 
-experiment = pybamm.Experiment(["Discharge at $(28*Np*Ns) W for 75 sec", "Discharge at $(8*Np*Ns) W for 800 sec", "Discharge at $(28*Np*Ns) W for 105 sec", "Rest for 300 sec"]) #2C
+experiment = pybamm.Experiment(["Discharge at $(35*Np*Ns) W for 75 sec", "Discharge at $(10*Np*Ns) W for 1000 sec", "Discharge at $(35*Np*Ns) W for 105 sec", "Rest for 300 sec"]) #2C
 
 
 options = pydict(Dict("thermal" => "lumped"))
 model = pybamm.lithium_ion.SPMe(name="DFN", options=options)
 #parameter_values = model.default_parameter_values
 
-netlist = setup_circuit.setup_circuit(Np, Ns, I=curr)  
+netlist = setup_circuit.setup_circuit(Np, Ns, I=curr, Rc=1e-7, Rb=1e-7, Rt=1e-7)  
 circuit_graph = setup_circuit.process_netlist_from_liionpack(netlist) 
 
 #Cooling System Parameters
@@ -76,8 +84,22 @@ h = Nu*κₜ/Dₕ
 α = κₜ/(ρ*cₚ)
 Pe = Δx*(ṁ/(ρ*A_inlet))/α
 
+input_parameter_order = ["mdot","h"]
+p = [ṁ, h]
 
-thermal_pipe = setup_thermal_graph.ForcedConvectionGraph(circuit_graph, mdot=ṁ, cp=cₚ, T_i=305., h=h, A_cooling=A_inlet, rho=ρ, deltax = Δx, A=pyconvert(Float64, model.default_parameter_values["Cell cooling surface area [m2]"]))
+
+thermal_pipe = setup_thermal_graph.ForcedConvectionGraph(
+    circuit_graph,
+    mdot=nothing,
+    cp=cₚ,
+    T_i=305.,
+    h=nothing,
+    A_cooling=A_inlet,
+    rho=ρ,
+    deltax = Δx,
+    A=pyconvert(Float64, model.default_parameter_values["Cell cooling surface area [m2]"])
+)
+
 thermal_pipe_graph = thermal_pipe.thermal_graph
 
 if Re >= 2000
@@ -95,7 +117,8 @@ pybamm_pack = pack.Pack(
     voltage_functional=voltage_functional, 
     operating_mode = experiment, 
     parameter_values=parameter_values,
-    initial_soc = 1.0
+    initial_soc = 1.0,
+    input_parameter_order = input_parameter_order
 )
 
 println("compiling pack...")
@@ -122,7 +145,7 @@ cell! = eval(Meta.parse(cell_str))
 
 
 
-myconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", override_psuedo=true)
+myconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", override_psuedo=true, input_parameter_order = input_parameter_order)
 myconverter.convert_tree_to_intermediate(pybamm_pack.pack)
 pack_str = myconverter.build_julia_code()
 
@@ -134,12 +157,12 @@ forcing_str = pyconvert(String,forcing_str)
 
 forcing_function = eval(Meta.parse(forcing_str))
 
-icconverter = pybamm2julia.JuliaConverter(override_psuedo = true)
+icconverter = pybamm2julia.JuliaConverter(override_psuedo = true, input_parameter_order=input_parameter_order)
 icconverter.convert_tree_to_intermediate(pybamm_pack.ics)
 ic_str = icconverter.build_julia_code()
 
 u0 = eval(Meta.parse(pyconvert(String,ic_str)))
-jl_vec = u0()
+jl_vec = u0(p)
 
 pack_str = pyconvert(String, pack_str)
 jl_func = eval(Meta.parse(pack_str))
@@ -147,7 +170,7 @@ jl_func = eval(Meta.parse(pack_str))
 dy = similar(jl_vec)
 
 println("building jacobian sparsity...")
-jac_sparsity = float(Symbolics.jacobian_sparsity((du,u)->jl_func(du,u,nothing,t),dy,jl_vec))
+jac_sparsity = float(Symbolics.jacobian_sparsity((du,u)->jl_func(du,u,p,t),dy,jl_vec))
 println("done building jacobian sparsity...")
 
 
@@ -167,7 +190,7 @@ cell_str = cellconverter.build_julia_code()
 cell_str = pyconvert(String, cell_str)
 cell! = eval(Meta.parse(cell_str))
 
-myconverter = pybamm2julia.JuliaConverter(cache_type = "dual", override_psuedo=true)
+myconverter = pybamm2julia.JuliaConverter(cache_type = "dual", override_psuedo=true, input_parameter_order = input_parameter_order)
 myconverter.convert_tree_to_intermediate(pybamm_pack.pack)
 pack_str = myconverter.build_julia_code()
 
@@ -196,58 +219,99 @@ cells = repeat(vcat(cell_rhs,cell_algebraic),pyconvert(Int, pybamm_pack.num_cell
 thermals = trues(pyconvert(Int,pybamm_pack.len_thermal_eqs))
 differential_vars = vcat(pack_eqs, cells, thermals)
 mass_matrix = sparse(diagm(differential_vars))
-
-
-
-
-println("building function")
 func = ODEFunction(jl_func, mass_matrix=mass_matrix, jac_prototype=jac_sparsity)
-prob = ODEProblem(func, jl_vec, (0.0, 1080.0), nothing)
-println("problem done")
 
-println("initializing")
-integrator = init(prob, QNDF(linsolve=KLUFactorization(), concrete_jac=true), save_everystep = true, dtmax = 1.0)
-println("done initializing, cycling...")
-@showprogress "cycling..." for i in 1:length(experiment.operating_conditions)
-    forcing_function = pybamm_pack.forcing_functions[i-1]
-    termination_function = pybamm_pack.termination_functions[i-1]
+#P IS ONLY ṁ!!!!
+function solve_with_p(p)
+    ṁ = p[1]
+    #Fluids numbers 
+    u_mean = ṁ/(A_inlet*ρ)
+    u_max = ((a - 1)/a)*u_mean
+    Dₕ = D_cell
+    Re = ρ*u_max*Dₕ/μ
+    println("reynolds number is $Re")
+    Pr_f = cₚ*μ/κₜ
 
-    forcing_converter = pybamm2julia.JuliaConverter(cache_type = "dual")
-    forcing_converter.convert_tree_to_intermediate(forcing_function)
-    forcing_str = forcing_converter.build_julia_code()
-    forcing_str = pyconvert(String,forcing_str)
+    Nu = PyBaMM.nusselt_mixed(false, 1, Re, Pr_f, Pr_f)
+    h = Nu*κₜ/Dₕ
 
-    forcing_function = eval(Meta.parse(forcing_str))
+    p_new = [ṁ, h]
+
+    #Peclet Number
+    α = κₜ/(ρ*cₚ)
+    Pe = Δx*(ṁ/(ρ*A_inlet))/α
+
+
+    println("building function")
+    prob = ODEProblem(func, jl_vec, (0.0, Inf), p_new)
+    println("problem done")
+
+    #println("initializing")
+    integrator = init(prob, QNDF())
+    #println("done initializing, cycling...")
+    for i in 1:length(experiment.operating_conditions)
+        forcing_function = pybamm_pack.forcing_functions[i-1]
+        termination_function = pybamm_pack.termination_functions[i-1]
+
+        forcing_converter = pybamm2julia.JuliaConverter(cache_type = "dual")
+        forcing_converter.convert_tree_to_intermediate(forcing_function)
+        forcing_str = forcing_converter.build_julia_code()
+        forcing_str = pyconvert(String,forcing_str)
+
+        forcing_function = eval(Meta.parse(forcing_str))
     
-    termination_converter = pybamm2julia.JuliaConverter(cache_type = "dual")
-    termination_converter.convert_tree_to_intermediate(termination_function)
-    termination_str = termination_converter.build_julia_code()
-    termination_str = pyconvert(String, termination_str)
+        termination_converter = pybamm2julia.JuliaConverter(cache_type = "dual")
+        termination_converter.convert_tree_to_intermediate(termination_function)
+        termination_str = termination_converter.build_julia_code()
+        termination_str = pyconvert(String, termination_str)
 
-    termination_function = eval(Meta.parse(termination_str))
+        termination_function = eval(Meta.parse(termination_str))
 
-    done = false
-    start_t = integrator.t
-    while !done
-        step!(integrator)
-        done = any((Base.@invokelatest termination_function(integrator.u, (integrator.t - start_t))).<0)
+        done = false
+        start_t = integrator.t
+        while !done
+            Base.@invokelatest step!(integrator)
+            done = any((Base.@invokelatest termination_function(integrator.u, (integrator.t - start_t))).<0)
+        end
     end
-    savevalues!(integrator)
+
+
+    Eu = PyBaMM.euler_inline(Re, a)
+    Δp = Eu*0.5*ρ*u_max*u_max*Ns
+    P_pump = Δp * ṁ
+    T_in = 305.0
+    T_out = integrator.u[end]
+    P_fridge = ṁ*cₚ*(T_out - T_in)/COP
+    return integrator.sol, P_pump, P_fridge, Eu, Nu, Pe, Re
 end
 
 
-Eu = PyBaMM.euler_inline(Re, a)
-Δp = Eu*0.5*ρ*u_max*u_max*Ns
-P_pump = Δp * ṁ
-T_in = 298.0
-T_out = sol[end][end]
-P_fridge = ṁ*cₚ*(T_out - T_in)/COP
+num_tests = 10
 
 
-figure(1)
-clf()
-plot(integrator.sol.t, integrator.sol[end-4:end, :]')
-xlabel("Time [s]")
-ylabel("Fluid temperature [K]")
-legend(["Row 1", "Row 2", "Row 3", "Row 4", "Row 5"])
-savefig("immersion.pdf")
+mdotarr_exp = 10 .^collect(range(-2, 0, length=num_tests))
+
+
+sol_arr = []
+vars_of_interest = ["Current [A]", "Cell temperature [K]"]
+itemized = true
+results = Dict()
+for i in 1:10
+    ṁ = mdotarr_exp[i]
+    sol, P_pump, P_fridge, Eu, Nu, Pe, Re = solve_with_p([ṁ])
+    results_of_interest = get_pack_variables(pybamm_pack, sol, vars_of_interest)
+    results[ṁ] = Dict(
+        "sol" => sol,
+        "P_pump" => P_pump,
+        "P_fridge" => P_fridge,
+        "Eu" => Eu,
+        "Nu" => Nu,
+        "Pe" => Pe,
+        "Re" => Re,
+        "Summary results" => results_of_interest
+    )
+end
+
+@save "$coolant.jld2"  results
+
+
