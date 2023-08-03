@@ -8,16 +8,16 @@ using JLD2
 
 
 
-coolants = [PyBaMM.coolant_properties_numbered[i] for i in 1:21]
-for coolant in coolants
-    pybamm = PyBaMM.pybamm
+coolant = "Air"
+
+pybamm = PyBaMM.pybamm
 pack = PyBaMM.pack
 pybamm2julia = PyBaMM.pybamm2julia
 setup_circuit = PyBaMM.setup_circuit
 setup_thermal_graph = PyBaMM.setup_thermal_graph
 
-Np = 8
-Ns = 8
+Np = 3
+Ns = 3
 λ = 100
 curr = 66
 t = 0.0
@@ -27,26 +27,36 @@ voltage_functional = true
 options = pydict(Dict("thermal" => "lumped"))
 
 
-parameter_values = pybamm.ParameterValues("Chen2020")
+parameter_values = pybamm.ParameterValues("OKane2022")
+parameter_values_2 = pybamm.ParameterValues("Chen2020")
+parameter_values["Negative electrode OCP [V]"] = parameter_values_2["Negative electrode OCP [V]"]
 
 #make it an 18650
 parameter_values["Electrode height [m]"] = 5.8e-2
 parameter_values["Electrode width [m]"] = 1.8
+
+#parameter_values.
+#parameter_values["Negative electrode LAM constant proportional term [s-1]"] = 2.7778e-07
 
 #make it a power cell
 parameter_values["Negative electrode thickness [m]"] = 60e-6
 parameter_values["Negative electrode porosity"] = 0.35
 parameter_values["Positive electrode thickness [m]"] = 55e-6
 parameter_values["Positive electrode porosity"] = 0.3
+parameter_values["Initial temperature [K]"] = 305.0
+
+parameter_values["Outer SEI solvent diffusivity [m2.s-1]"] = 1e-25
 
 #parameter_values["Electrode width [m]"] = 1.4
 
 
-experiment = pybamm.Experiment(["Discharge at $(35*Np*Ns) W for 75 sec", "Discharge at $(10*Np*Ns) W for 1000 sec", "Discharge at $(35*Np*Ns) W for 105 sec", "Rest for 300 sec"]) #2C
+experiment = pybamm.Experiment(repeat(["Discharge at $(35*Np*Ns) W for 75 sec", "Discharge at $(10*Np*Ns) W for 1000 sec", "Discharge at $(35*Np*Ns) W for 105 sec", "Rest for 300 sec", "Charge at $(3*Np) A until $(4.2*Ns) V", "Hold at $(4.2*Ns) V until $(300*Np) mA", "Rest for 10000 s"],1000)) #2C
+
+#experiment = pybamm.Experiment(["Discharge at $(1) W for 75 sec"]) #2C
 
 
-options = pydict(Dict("thermal" => "lumped"))
-model = pybamm.lithium_ion.SPMe(name="DFN", options=options)
+options = pydict(Dict("thermal" => "lumped"))#, "SEI"=>"solvent-diffusion limited", "lithium plating"=>"irreversible","loss of active material"=>"stress-driven"))
+model = pybamm.lithium_ion.SPM(name="DFN", options=options)
 #parameter_values = model.default_parameter_values
 
 netlist = setup_circuit.setup_circuit(Np, Ns, I=curr, Rc=1e-7, Rb=1e-7, Rt=1e-7)  
@@ -91,29 +101,22 @@ h = Nu*κₜ/Dₕ
 α = κₜ/(ρ*cₚ)
 Pe = Δx*(ṁ/(ρ*A_inlet))/α
 
-input_parameter_order = ["mdot","h"]
-p = [ṁ, h]
+input_parameter_order = nothing
+p = nothing
 
 
-thermal_pipe = setup_thermal_graph.ForcedConvectionGraph(
+thermal_pipe = setup_thermal_graph.NaturalConvectionGraph(
     circuit_graph,
-    mdot=nothing,
     cp=cₚ,
-    T_i=305.,
-    h=nothing,
-    A_cooling=A_inlet,
-    rho=ρ,
-    deltax = Δx,
-    A=pyconvert(Float64, model.default_parameter_values["Cell cooling surface area [m2]"])
+    alpha = α,
+    rho = ρ,
+    mu = μ,
+    T_amb = 300.0,
+    D = Dₕ
+
 )
 
 thermal_pipe_graph = thermal_pipe.thermal_graph
-
-if Re >= 2000
-    error("turbulent flow not supported")
-else
-    fd = 84/Re
-end
 
 
 pybamm_pack = pack.Pack(
@@ -169,7 +172,7 @@ icconverter.convert_tree_to_intermediate(pybamm_pack.ics)
 ic_str = icconverter.build_julia_code()
 
 u0 = eval(Meta.parse(pyconvert(String,ic_str)))
-jl_vec = u0(p)
+jl_vec = u0()
 
 pack_str = pyconvert(String, pack_str)
 jl_func = eval(Meta.parse(pack_str))
@@ -177,7 +180,7 @@ jl_func = eval(Meta.parse(pack_str))
 dy = similar(jl_vec)
 
 
-jac_sparsity = float(Symbolics.jacobian_sparsity((du,u)->jl_func(du,u,p,t),dy,jl_vec))
+#jac_sparsity = float(Symbolics.jacobian_sparsity((du,u)->jl_func(du,u,p,t),dy,jl_vec))
 
 
 
@@ -226,24 +229,13 @@ cells = repeat(vcat(cell_rhs,cell_algebraic),pyconvert(Int, pybamm_pack.num_cell
 thermals = trues(pyconvert(Int,pybamm_pack.len_thermal_eqs))
 differential_vars = vcat(pack_eqs, cells, thermals)
 mass_matrix = sparse(diagm(differential_vars))
-func = ODEFunction(jl_func, mass_matrix=mass_matrix, jac_prototype=jac_sparsity)
-
-#P IS ONLY ṁ!!!!
-function solve_with_p(p)
-    Re = p[1]
+func = ODEFunction(jl_func, mass_matrix=mass_matrix)#, jac_prototype=jac_sparsity)
     #Fluids numbers 
     u_max = Re*μ/(ρ*Dₕ)
     u_mean = u_max/((a-1)/a)
     ṁ = u_mean*A_inlet*ρ
 
-    Dₕ = D_cell
-
-    Pr_f = cₚ*μ/κₜ
-
-    Nu = PyBaMM.nusselt_mixed(false, 1, Re, Pr_f, Pr_f)
-    h = Nu*κₜ/Dₕ
-
-    p_new = [ṁ, h]
+    p_new = nothing
 
     #Peclet Number
     α = κₜ/(ρ*cₚ)
@@ -255,9 +247,12 @@ function solve_with_p(p)
 
 
     #println("initializing")
-    integrator = init(prob, QNDF())
-    #println("done initializing, cycling...")
-    for i in 1:length(experiment.operating_conditions)
+    integrator = init(prob, QNDF(), dtmax = 10.0)
+    step=0
+    println("done initializing, cycling...")
+   
+    @showprogress for i in 1:length(experiment.operating_conditions)
+        global step += 1
         forcing_function = pybamm_pack.forcing_functions[i-1]
         termination_function = pybamm_pack.termination_functions[i-1]
 
@@ -290,39 +285,5 @@ function solve_with_p(p)
     T_in = 305.0
     T_out = integrator.u[end]
     P_fridge = ṁ*cₚ*(T_out - T_in)/COP
-    return integrator.sol, P_pump, P_fridge, Eu, Nu, Pe, Re
-end
 
 
-num_tests = 10
-
-
-Re_arr = collect(range(1,stop=100, length=10))
-
-
-sol_arr = []
-vars_of_interest = ["Current [A]", "Cell temperature [K]"]
-itemized = true
-results = Dict()
-for i in 1:num_tests
-    println("Coolant $coolant Iteration $i")
-    Re = Re_arr[i]
-    sol, P_pump, P_fridge, Eu, Nu, Pe, Re = solve_with_p([Re])
-    results_of_interest = get_pack_variables(pybamm_pack, sol, vars_of_interest)
-    results[Re] = Dict(
-        "sol" => Array(sol),
-        "t" => Array(sol.t),
-        "P_pump" => P_pump,
-        "P_fridge" => P_fridge,
-        "Eu" => Eu,
-        "Nu" => Nu,
-        "Pe" => Pe,
-        "Re" => Re,
-        "Summary results" => results_of_interest
-    )
-end
-
-@save "$coolant.jld2"  results
-
-
-end

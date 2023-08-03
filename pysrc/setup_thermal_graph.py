@@ -662,7 +662,9 @@ class NaturalConvectionGraph(ThermalGraph):
                 cell_temperature = pack.batteries[self.air_nodes[node]["batt"]]["temperature"]
                 beta = 1/cell_temperature
                 nu = self.mu / self.rho
-                Gr = 9.81*beta*(cell_temperature - ambient_temperature)*self.D*self.D*self.D/(nu*nu)
+                delta_t = cell_temperature - ambient_temperature
+                delta_t = pybamm.AbsoluteValue(delta_t)
+                Gr = 9.81*beta*(delta_t)*self.D*self.D*self.D/(nu*nu)
                 Nu = 0.46*pybamm.Power(Gr, 0.25)
                 k = self.alpha*self.cp*self.rho
                 h = Nu*k/self.D

@@ -6,25 +6,22 @@ using LinearSolveCUDA
 using PythonPlot
 using JLD2
 
-
-
-coolants = [PyBaMM.coolant_properties_numbered[i] for i in 1:21]
-for coolant in coolants
-    pybamm = PyBaMM.pybamm
+pybamm = PyBaMM.pybamm
 pack = PyBaMM.pack
 pybamm2julia = PyBaMM.pybamm2julia
 setup_circuit = PyBaMM.setup_circuit
 setup_thermal_graph = PyBaMM.setup_thermal_graph
 
-Np = 8
-Ns = 8
+
+Np = 6
+Ns = 6
 λ = 100
-curr = 66
+curr = 100
 t = 0.0
 functional = true
 voltage_functional = true
 
-options = pydict(Dict("thermal" => "lumped"))
+options = pydict(Dict("thermal" => "lumped", "SEI" => "solvent-diffusion limited"))
 
 
 parameter_values = pybamm.ParameterValues("Chen2020")
@@ -42,11 +39,11 @@ parameter_values["Positive electrode porosity"] = 0.3
 #parameter_values["Electrode width [m]"] = 1.4
 
 
-experiment = pybamm.Experiment(["Discharge at $(35*Np*Ns) W for 75 sec", "Discharge at $(10*Np*Ns) W for 1000 sec", "Discharge at $(35*Np*Ns) W for 105 sec", "Rest for 300 sec"]) #2C
+experiment = pybamm.Experiment(repeat(["Discharge at $(35*Np*Ns) W for 75 sec", "Discharge at $(10*Np*Ns) W for 1000 sec", "Discharge at $(35*Np*Ns) W for 105 sec", "Rest for 300 sec", "Charge at $(3*Np) A until $(4.2*Ns) V"], 1000)) #2C
 
 
 options = pydict(Dict("thermal" => "lumped"))
-model = pybamm.lithium_ion.SPMe(name="DFN", options=options)
+model = pybamm.lithium_ion.SPM(name="DFN", options=options)
 #parameter_values = model.default_parameter_values
 
 netlist = setup_circuit.setup_circuit(Np, Ns, I=curr, Rc=1e-7, Rb=1e-7, Rt=1e-7)  
@@ -61,8 +58,10 @@ H_pack = h_cell
 L_pack = D_cell*a*Ns
 A_inlet = W_pack*H_pack
 COP = 1.0
-#ṁ = 0.01
+ṁ = 0.01
 Δx = a*D_cell
+
+coolant = "Novec 7500" 
 
 #Coolant Properties
 ρ = PyBaMM.coolant_properties[coolant]["Density [kg.m3]"]
@@ -72,16 +71,11 @@ cₚ = PyBaMM.coolant_properties[coolant]["Specific heat capacity [J.kg.K]"]
 
 
 #Fluids numbers 
-#u_mean = ṁ/(A_inlet*ρ)
-#u_max = ((a - 1)/a)*u_mean
+u_mean = ṁ/(A_inlet*ρ)
+u_max = ((a - 1)/a)*u_mean
 Dₕ = D_cell
-#Re = ρ*u_max*Dₕ/μ
-Re = 1 + 1e-12
-
-u_max = Re*μ/(ρ*Dₕ)
-u_mean = u_max/((a-1)/a)
-ṁ = u_mean*A_inlet*ρ
-
+Re = ρ*u_max*Dₕ/μ
+println("reynolds number is $Re")
 Pr_f = cₚ*μ/κₜ
 
 Nu = PyBaMM.nusselt_mixed(false, 1, Re, Pr_f, Pr_f)
@@ -128,9 +122,9 @@ pybamm_pack = pack.Pack(
     input_parameter_order = input_parameter_order
 )
 
-
+println("compiling pack...")
 pybamm_pack.build_pack()
-
+println("finished compiling pack...")
 
 if voltage_functional
     voltageconverter = pybamm2julia.JuliaConverter(cache_type = "symbolic", inplace=true)
@@ -176,9 +170,9 @@ jl_func = eval(Meta.parse(pack_str))
 
 dy = similar(jl_vec)
 
-
-jac_sparsity = float(Symbolics.jacobian_sparsity((du,u)->jl_func(du,u,p,t),dy,jl_vec))
-
+#println("building jacobian sparsity...")
+#jac_sparsity = float(Symbolics.jacobian_sparsity((du,u)->jl_func(du,u,p,t),dy,jl_vec))
+#println("done building jacobian sparsity...")
 
 
 if voltage_functional
@@ -226,18 +220,17 @@ cells = repeat(vcat(cell_rhs,cell_algebraic),pyconvert(Int, pybamm_pack.num_cell
 thermals = trues(pyconvert(Int,pybamm_pack.len_thermal_eqs))
 differential_vars = vcat(pack_eqs, cells, thermals)
 mass_matrix = sparse(diagm(differential_vars))
-func = ODEFunction(jl_func, mass_matrix=mass_matrix, jac_prototype=jac_sparsity)
+func = ODEFunction(jl_func, mass_matrix=mass_matrix)#, jac_prototype=jac_sparsity)
 
 #P IS ONLY ṁ!!!!
 function solve_with_p(p)
-    Re = p[1]
+    ṁ = p[1]
     #Fluids numbers 
-    u_max = Re*μ/(ρ*Dₕ)
-    u_mean = u_max/((a-1)/a)
-    ṁ = u_mean*A_inlet*ρ
-
+    u_mean = ṁ/(A_inlet*ρ)
+    u_max = ((a - 1)/a)*u_mean
     Dₕ = D_cell
-
+    Re = ρ*u_max*Dₕ/μ
+    println("reynolds number is $Re")
     Pr_f = cₚ*μ/κₜ
 
     Nu = PyBaMM.nusselt_mixed(false, 1, Re, Pr_f, Pr_f)
@@ -250,14 +243,14 @@ function solve_with_p(p)
     Pe = Δx*(ṁ/(ρ*A_inlet))/α
 
 
-
+    println("building function")
     prob = ODEProblem(func, jl_vec, (0.0, Inf), p_new)
-
+    println("problem done")
 
     #println("initializing")
-    integrator = init(prob, QNDF())
+    integrator = init(prob, QNDF(), save_everystep=false)
     #println("done initializing, cycling...")
-    for i in 1:length(experiment.operating_conditions)
+    @showprogress "cycling..." for i in 1:length(experiment.operating_conditions)
         forcing_function = pybamm_pack.forcing_functions[i-1]
         termination_function = pybamm_pack.termination_functions[i-1]
 
@@ -281,6 +274,7 @@ function solve_with_p(p)
             Base.@invokelatest step!(integrator)
             done = any((Base.@invokelatest termination_function(integrator.u, (integrator.t - start_t))).<0)
         end
+        savevalues!(integrator, true)
     end
 
 
@@ -297,21 +291,19 @@ end
 num_tests = 10
 
 
-Re_arr = collect(range(1,stop=100, length=10))
+mdotarr_exp = 10 .^collect(range(-2, 0, length=num_tests))
 
 
 sol_arr = []
 vars_of_interest = ["Current [A]", "Cell temperature [K]"]
 itemized = true
 results = Dict()
-for i in 1:num_tests
-    println("Coolant $coolant Iteration $i")
-    Re = Re_arr[i]
-    sol, P_pump, P_fridge, Eu, Nu, Pe, Re = solve_with_p([Re])
+#for i in 1:10
+    ṁ = mdotarr_exp[1]
+    sol, P_pump, P_fridge, Eu, Nu, Pe, Re = solve_with_p([ṁ])
     results_of_interest = get_pack_variables(pybamm_pack, sol, vars_of_interest)
-    results[Re] = Dict(
-        "sol" => Array(sol),
-        "t" => Array(sol.t),
+    results[ṁ] = Dict(
+        "sol" => sol,
         "P_pump" => P_pump,
         "P_fridge" => P_fridge,
         "Eu" => Eu,
@@ -320,9 +312,8 @@ for i in 1:num_tests
         "Re" => Re,
         "Summary results" => results_of_interest
     )
-end
+#end
 
-@save "$coolant.jld2"  results
+#@save "$coolant.jld2"  results
 
 
-end
